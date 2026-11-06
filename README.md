@@ -111,12 +111,12 @@ flowchart TB
 | `sim/fake_robots`, `sim/fake_robots/scenarios` | 가짜 핑키, 작업공간 서버, 출고 팔, 비전, 중앙, 시계, 심판 노드와 시나리오 | 동작 |
 | `sim/fake_robots/maps` | 비교용 일방통행 지도 2개. 기본 지도는 `pc/fleet_core/fleet_core/data/lane_map.yaml` | 동작 |
 | `tools` | 전수 검사(`model_check.py`), 기록 재생(`replay.py`), 지연·잡음 압박 시험(`pressure_sweep.py`), 격자 지도 변환(`convert_grid_map.py`) | 동작 |
-| `sim/fleet_gz_sim` | Gazebo 3대 시뮬의 자리. 지금은 격리 검사(도메인 43~101, `LOCALHOST`, 고정 피어 없음, Fast DDS, Fast DDS XML·discovery server 없음)만 있음 | 자리 |
-| `bringup/iponic_bringup` | `pc.launch.py`(동작), `pinky.launch.py`·`sim_gz.launch.py`(자리) | 동작 |
+| `sim/fleet_gz_sim` | Gazebo 3대 시뮬. 지금은 격리 검사만 | 격리 검사만 |
+| `bringup/iponic_bringup` | `pc.launch.py`, `pinky.launch.py`, `sim_gz.launch.py` | `pc.launch.py`만 동작 |
 | `scripts/check_interfaces.py` | 실행 중인 시스템을 `contract.yaml`과 비교 | 동작 |
-| `pc/central`, `pinky/*`, `arm/*` | 담당자가 채울 빈 패키지. 패키지마다 `README.md`에 맡을 일과 인터페이스를 적었다 | 비어 있음 |
+| `pc/central`, `pinky/*`, `arm/*` | 담당자가 채울 빈 패키지. 할 일은 패키지별 `README.md` | 비어 있음 |
 
-폴더별 담당, 이름 규칙, 시스템 전체의 이름 목록은 `docs/저장소_구조와_이름.md`(제안)에 있습니다.
+폴더, 이름 규칙, 인터페이스 목록: `docs/저장소_구조와_이름.md`.
 
 패키지 이름(`fleet_interfaces`, `fleet_manager`, `fleet_core`, `fake_robots`, `iponic_bringup`)은 그대로이고, 2026-11-06에 패키지 안의 모듈만 역할에 맞게 나누고 이름을 바꿨습니다. 프로젝트 이름이 정해지지 않아 패키지에 접두어를 붙이지 않았습니다. 모듈별로 바꾼 표는 `docs/worklog_2026-11-06.md`에 있습니다. 낱말은 fleet(핑키 3대), station(작업공간·출고), waypoint(지점, 레인 그래프의 꼭짓점. ROS 노드와 헷갈리지 않게 "노드"라 부르지 않습니다), lane(레인), zone(구역, 잠금 단위), dock/parking으로 씁니다.
 
