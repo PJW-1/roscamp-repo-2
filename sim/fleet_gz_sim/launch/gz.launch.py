@@ -1,6 +1,6 @@
 """Gazebo 3대 시뮬의 자리. 지금은 격리 검사만 하고 아무것도 띄우지 않는다.
 
-채울 것(README.md): Gazebo 월드, 핑키 모델 3대, 진짜 fleet_manager + pinky_fsm + Nav2,
+채울 것: Gazebo 월드, 핑키 모델 3대, 진짜 fleet_manager + pinky_fsm + Nav2,
 central과 팔은 fake_robots. 시계는 Gazebo /clock을 쓰므로 sim_clock은 띄우지 않는다.
 """
 import os
