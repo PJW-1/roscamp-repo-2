@@ -41,7 +41,9 @@ flowchart TB
   web -.- central
   central -- "/central/orders" --> fm
   fm -. "srv /central/report_order" .-> central
-  fm -- "/central/events, /fleet/robots, /fleet/assignments, /fleet/zones" --> central
+  fm -- "/fleet/robots, /fleet/assignments, /fleet/zones" --> central
+  fm -- "/central/events" --> web
+  central -- "/central/events" --> web
   central -. "srv /fleet/confirm_clear" .-> fm
   fm == "/pinkyN/move_to, /pinkyN/dock" ==> fsm
   fm -- "/fleet/heartbeat" --> fsm
