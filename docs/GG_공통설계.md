@@ -77,7 +77,7 @@ FMS 안에는 주문 진행을 맡는 `orders`, 교통을 맡는 `traffic`, 둘�
 | `DEADLOCK_RETREAT` | ERROR | traffic | 로봇 1대가 아직 들어가지 않은 구역을 포기한다 |
 | `DEADLOCK_UNRESOLVED` | ERROR | traffic | 풀지 못했다. 관리자가 봐야 한다 |
 | `PLACEMENT_CONFLICT` | ERROR | traffic | 시작 때 다른 로봇이 쥔 구역이나 그 충돌쌍에 서 있다. 해결될 때까지 전원이 기다린다 |
-| `RECOVERY_CONFLICT` | ERROR | traffic | 복구한 로봇이 다른 로봇이 쥔 구역 안에 있다. 알리기만 한다 |
+| `RECOVERY_CONFLICT` | ERROR | traffic | 복구한 로봇이 다른 로봇이 쥔 구역 안에 있다. 그 로봇만 ERROR가 되고 다른 로봇은 세우지 않는다(시작 때의 `PLACEMENT_CONFLICT`와 다르다) |
 | `ROBOT_NOT_REPORTING` | ERROR | traffic | `startup_wait_s`가 지나도 지도에 오르지 않은 로봇이 있다. 전원이 기다린다 |
 | `ORDER_BOUND` | INFO | orders | 주문을 로봇에 묶었다. detail은 주문 ID, source는 로봇 |
 | `ORDER_REQUEUED` | INFO | orders | 치운 로봇의 주문을 대기 맨 앞으로 되돌렸다 |

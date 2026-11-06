@@ -1,6 +1,6 @@
 # GG (Give Gift)
 
-심화 16기 2팀 GG 프로젝트 저장소입니다. 관제 PC, 핑키 3대(pinky1~3), 로봇팔 3대(작업공간 arm1·arm2, 출고 arm3)에서 도는 ROS 2 Jazzy 패키지가 모두 여기 있습니다.
+심화 16기 2팀 GG 프로젝트 저장소입니다. 관제 PC, 핑키 3대(pinky1~3), 로봇팔 3대(작업공간 arm1·arm2, 출고 arm3)의 ROS 2 Jazzy 패키지를 둡니다. 핑키 제조사 패키지는 `iponic.repos`로 따로 받습니다.
 
 ## 폴더
 
