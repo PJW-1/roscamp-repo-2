@@ -1,0 +1,39 @@
+# arm1이 채움에 세 번 연속 실패해 재시도 한도를 다 쓴다. pinky1은 주문을 쥔 채
+# 작업대 도크에서 ERROR가 된다. 60초에 운영자가 들어내고 confirm_clear가 주문을 맨 앞에 돌려놓는다.
+# pinky2가 그 주문을 받고 68초, 채우는 도중에 운영자가 이것도 들어낸다.
+# 작업셀은 멈추는 데 cancel_seconds가 걸려 그때까지 바쁘고, pinky3은 clear 약 3초 뒤 도크에 닿는다.
+# 플릿 매니저는 취소된 목표의 결과가 나올 때까지 pinky3의 목표를 쥐고 있어야 한다.
+# 먼저 보내면 거부돼 세 번째 FILL_RETRY로 나타난다.
+# 이후 pinky3이 전부 끝낸다.
+seed: 23
+speed_factor: 5.0
+timeout_s: 900
+stock: {arm1: {A: 6, B: 6}, arm2: {C: 6, D: 6}}
+orders:
+  - {at_s: 0, id: O-001, items: {A: 2, C: 2}}
+  - {at_s: 0, id: O-002, items: {B: 1, D: 1}}
+  - {at_s: 10, id: O-003, items: {A: 2}}
+  - {at_s: 20, id: O-004, items: {C: 1, D: 1}}
+robots:
+  pinky1: {start: P-6, speed_mps: 0.20, pose_noise_m: 0.03}
+  pinky2: {start: P-5, speed_mps: 0.18, pose_noise_m: 0.03}
+  pinky3: {start: P-4, speed_mps: 0.20, pose_noise_m: 0.03}
+arm: {seconds_per_item: 4.0, swap_seconds: 8.0, fail_rate: 0.0, cancel_seconds: 4.0}
+dock: {duration_s: 1.0, error_cm: 1.0}
+faults:
+  - {at_s: 0, arm: arm1, type: arm_fail, count: 3}
+  - {at_s: 60, robot: pinky1, type: operator_remove}
+  - {at_s: 68, robot: pinky2, type: operator_remove}
+expect:
+  all_orders_finished: true
+  orders_shipped: 4
+  orders_partial: 0
+  orders_held: 0
+  fifo_violations: 0
+  dual_arm_overlaps: 0
+  zone_holder_max: 1
+  released_without_position_check: 0
+  unheld_zone_pose: 0
+  events_include: [FILL_RETRY, FILL_FAILED, ZONES_CLEARED, ORDER_REQUEUED]
+  event_counts: {FILL_RETRY: 2, FILL_FAILED: 1, ZONES_CLEARED: 2, ORDER_REQUEUED: 2, ROBOT_NOT_REPORTING: 0}
+  order_results: {O-001: SHIPPED, O-002: SHIPPED, O-003: SHIPPED, O-004: SHIPPED}

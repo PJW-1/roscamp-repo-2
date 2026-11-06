@@ -1,0 +1,37 @@
+# 한 로봇은 통신이 끊기고 다른 로봇은 공유 레인에서 nav 중단을 겪는다.
+# 구역 잠금은 배타적이어야 하고 낡은 위치로 풀리면 안 된다. 주문은 모두 출고된다:
+# 통신은 돌아오고 중단 두 번은 재시도 한도 안이다. 로봇 3대가 주문 6건을 처리하려면
+# 한 바퀴 넘게 돌아야 해서 그 시각에 로봇들이 바쁘다.
+seed: 7
+speed_factor: 5.0
+timeout_s: 900
+stock: {arm1: {A: 6, B: 6}, arm2: {C: 6, D: 6}}
+orders:
+  - {at_s: 0, id: O-001, items: {A: 1, C: 1}}
+  - {at_s: 0, id: O-002, items: {B: 1, D: 1}}
+  - {at_s: 10, id: O-003, items: {A: 2}}
+  - {at_s: 20, id: O-004, items: {C: 1, D: 1, A: 1}}
+  - {at_s: 40, id: O-005, items: {B: 2, C: 2}}
+  - {at_s: 60, id: O-006, items: {D: 1}}
+robots:
+  pinky1: {start: P-6, speed_mps: 0.20, pose_noise_m: 0.03}
+  pinky2: {start: P-5, speed_mps: 0.18, pose_noise_m: 0.03}
+  pinky3: {start: P-4, speed_mps: 0.20, pose_noise_m: 0.03}
+arm: {seconds_per_item: 4.0, swap_seconds: 8.0, fail_rate: 0.0}
+dock: {duration_s: 3.0, error_cm: 1.0}
+faults:
+  - {at_s: 40, robot: pinky2, type: comm_loss, duration_s: 20}
+  - {at_s: 50, robot: pinky1, type: nav_abort, count: 2}
+expect:
+  all_orders_finished: true
+  orders_shipped: 6
+  orders_partial: 0
+  orders_held: 0
+  fifo_violations: 0
+  dual_arm_overlaps: 0
+  zone_holder_max: 1
+  released_without_position_check: 0
+  unheld_zone_pose: 0
+  events_include: [COMM_LOST, COMM_RESTORED, GOAL_RETRY]
+  event_counts: {COMM_LOST: 1, COMM_RESTORED: 1, GOAL_RETRY: 2, GOAL_FAILED: 0, ROBOT_NOT_REPORTING: 0}
+  order_results: {O-001: SHIPPED, O-002: SHIPPED, O-003: SHIPPED, O-004: SHIPPED, O-005: SHIPPED, O-006: SHIPPED}

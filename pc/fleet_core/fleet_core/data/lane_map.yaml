@@ -1,0 +1,60 @@
+# GG 코스 맵 초안. 로봇은 지점 사이를 어느 방향이든 곧게 달리고, 레인은 대각선일 수 있다.
+# 실제 배치는 SLAM과 맵 회의 뒤에 정한다. 이 파일만 바꾸면 된다.
+#
+#                 P-5 ---> P-6 ------------> N
+#                /                           |  (지점 없이 AVENUE를 가로지르므로
+#             P-4                            |   둘은 충돌 쌍으로 서로 잠근다)
+#              ^                             v
+#             P-3     W                      |                 O (OUTBOUND)
+#              ^    ^   \                    |               ^   \
+#               \  /     v                   |              /     v
+#                 Q       A <===== AVENUE ===+====> B      QO      (양방향, 잠금 하나)
+#                  ^     /                   |        \   ^
+#                   \   v                    v         v /
+#                     L <------------------- S          R
+half_width_m: 0.05    # 추정: 레인에서 이 거리까지는 레인 위로 친다
+lane_entry_m: 0.25    # 레인 바닥이 시작되는 거리. 여기서 half_width_m을 뺀 점을
+                      # 지나면 그 레인의 구역 안으로 친다
+origin_m: [0.0, 0.0]
+bundle_two_way: true  # 양방향 쌍은 잠금 하나. 끈 경우는 tools/model_check.py가 잰다
+waypoints:
+  - {id: W, x: 1.05, y: 1.55}      # WORK 도크
+  - {id: A, x: 1.45, y: 1.15}      # AVENUE 서쪽 끝: W, B에서 들어오고 L, B로 나간다
+  - {id: L, x: 1.05, y: 0.75}      # 대기열로 돌아가는 길에 AVENUE와 S가 여기서 합류
+  - {id: Q, x: 0.65, y: 1.15}      # 마지막 갈림: 도크 또는 대기 줄
+  - {id: B, x: 2.55, y: 1.15}      # AVENUE 동쪽 끝
+  - {id: R, x: 2.95, y: 0.75}
+  - {id: QO, x: 3.35, y: 1.15}     # 출고 대기열
+  - {id: O, x: 2.95, y: 1.55}      # OUTBOUND 도크
+  - {id: N, x: 2.00, y: 1.70}      # 교차로 앞 정지선
+  - {id: S, x: 2.00, y: 0.60}      # 교차로 건너편
+  - {id: P-3, x: 0.35, y: 1.55}    # 대기 줄, 주행 순서대로
+  - {id: P-4, x: 0.35, y: 1.95}
+  - {id: P-5, x: 0.80, y: 2.05}
+  - {id: P-6, x: 1.20, y: 2.05}
+two_way:
+  AVENUE: [A, B]
+lanes:
+  - {from: W, to: A}
+  - {from: A, to: L}
+  - {from: L, to: Q}
+  - {from: Q, to: W}
+  - {from: O, to: B}
+  - {from: B, to: R}
+  - {from: R, to: QO}
+  - {from: QO, to: O}
+  - {from: Q, to: P-3}
+  - {from: P-3, to: P-4}
+  - {from: P-4, to: P-5}
+  - {from: P-5, to: P-6}
+  - {from: P-6, to: N}
+  - {from: N, to: S}
+  - {from: S, to: L}
+# `server`는 스테이션 액션의 서버. arm1, arm2는 fill 액션 하나 뒤에서 일하므로
+# 바구니 공간 나누기는 팔 팀이 맡는다.
+# 도크로 가는 로봇은 commit 지점의 단위를 쥐기 전까지 다른 곳으로 보낼 수 있다.
+stations:
+  WORK: {dock: W, queue: [[L, Q], [Q, W]], commit: W, server: workcell, arms: [arm1, arm2], action: fill}
+  OUTBOUND: {dock: O, queue: [[R, QO], [QO, O]], commit: O, server: arm3, arms: [arm3], action: swap}
+# 주행 순서대로. 대기 로봇은 가장 깊은 빈 곳으로 가므로 먼저 온 로봇이 먼저 나간다.
+parking: [P-3, P-4, P-5, P-6]

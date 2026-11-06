@@ -1,0 +1,27 @@
+# 로봇이 이동 중일 때 FMS 프로세스가 죽고, pinky3가 조용한 동안 다시 올라온다.
+# 로봇은 스스로 멈추고, 세 대가 모두 보고하기 전에는 아무도 안 움직이며, 주문은 끝까지 처리된다.
+# 프로세스를 죽이는 쪽은 옆의 test_fms_restart.py다.
+#
+# 로봇을 느리게 둔 이유: 타임아웃이 실제 시간 기준이라, 이 배속과 보통 속도로는 이동이 1초 만에
+# 끝나 타임아웃이 멈추기 전에 끝난다. 여기서는 타임아웃 시점에 세 대 모두 이동 중이다.
+#
+# 새 FMS는 진행 중인 바구니와 주문을 모르므로 바구니를 두 번 채울 수 있다.
+# 그래서 재고를 넉넉히 두고 출하 주문 수는 고정하지 않는다.
+seed: 7
+speed_factor: 5.0
+timeout_s: 1500
+stock: {arm1: {A: 40, B: 40}, arm2: {C: 40, D: 40}}
+orders:
+  - {at_s: 0, id: O-001, items: {A: 1, C: 1}}
+robots:
+  pinky1: {start: P-6, speed_mps: 0.02, pose_noise_m: 0.03}
+  pinky2: {start: P-5, speed_mps: 0.02, pose_noise_m: 0.03}
+  pinky3: {start: P-4, speed_mps: 0.02, pose_noise_m: 0.03}
+arm: {seconds_per_item: 4.0, swap_seconds: 8.0, fail_rate: 0.0}
+dock: {duration_s: 3.0, error_cm: 1.0}
+faults:
+  - {at_s: 50, robot: pinky3, type: comm_loss, duration_s: 70}
+expect:
+  all_orders_finished: true
+  orders_shipped_min: 1
+  events_include: [ROBOT_NOT_REPORTING]
