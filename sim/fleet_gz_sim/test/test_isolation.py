@@ -28,9 +28,10 @@ def test_domain_range_ends_are_accepted(domain):
 
 
 # 102~232는 리눅스 기본 임시 포트(32768~60999)와 겹치거나 프로세스 수가 모자란다.
-# "²"는 str.isdigit()이 참이지만 int()가 받지 않는다.
+# "²"는 str.isdigit()이 참이지만 int()가 받지 않는다. 4300자리를 넘는 숫자도 int()가 거부한다.
 @pytest.mark.parametrize("domain", [None, "", "abc", "6", "42", "102", "232", "233",
-                                    "²", " 43", "43 "])
+                                    "²", " 43", "43 ",
+                                    pytest.param("9" * 5000, id="5000_digits")])
 def test_domain_must_be_set_and_away_from_the_robot_network(domain):
     found = problems(with_(ROS_DOMAIN_ID=domain))
     assert len(found) == 1 and "ROS_DOMAIN_ID" in found[0]
@@ -57,6 +58,7 @@ def test_the_rmw_actually_loaded_wins_over_the_variable():
     found = problems(SAFE, rmw="rmw_cyclonedds_cpp")
     assert len(found) == 1 and "rmw_cyclonedds_cpp" in found[0]
     assert problems(SAFE, rmw="rmw_fastrtps_cpp") == []
+    assert problems(with_(RMW_IMPLEMENTATION="rmw_cyclonedds_cpp"), rmw="rmw_fastrtps_cpp") == []
 
 
 @pytest.mark.parametrize("name", ["ROS_DISCOVERY_SERVER", "FASTRTPS_DEFAULT_PROFILES_FILE",

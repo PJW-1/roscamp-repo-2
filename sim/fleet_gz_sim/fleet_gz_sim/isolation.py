@@ -30,7 +30,9 @@ def problems(env: Mapping[str, str], *, rmw: str | None = None,
     """
     found = []
     domain = env.get("ROS_DOMAIN_ID", "")
-    if not (domain.isascii() and domain.isdigit()) or not MIN_DOMAIN <= int(domain) <= MAX_DOMAIN:
+    # ASCII 숫자 세 자리까지만 int()에 넘긴다("²"나 아주 긴 숫자는 int()가 예외를 낸다)
+    digits = domain.isascii() and domain.isdigit() and len(domain) <= 3
+    if not digits or not MIN_DOMAIN <= int(domain) <= MAX_DOMAIN:
         found.append(f"ROS_DOMAIN_ID={domain!r}: {MIN_DOMAIN}~{MAX_DOMAIN} 사이로 정해야 한다")
     scope = env.get("ROS_AUTOMATIC_DISCOVERY_RANGE", "")
     if scope != "LOCALHOST":
