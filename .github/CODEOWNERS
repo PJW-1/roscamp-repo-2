@@ -9,5 +9,5 @@
 # /pinky/pinky_nav_config/   <slam-nav2>
 # /arm/arm_control/          <arm-control>   (/workcell/fill_basket, /arm3/swap_basket 서버)
 # /sim/fake_robots/fake_robots/fake_workcell_node.py  <arm-control>
-# /arm/arm_vision/           <arm-vision>
+# /vision/                   <vision>
 # /interfaces/               <fleet> <pinky-control> <central>

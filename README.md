@@ -1,6 +1,6 @@
 # GG (Give Gift)
 
-심화 16기 2팀 GG 프로젝트 저장소입니다. 관제 PC, 핑키 3대(pinky1~3), 로봇팔 3대(작업공간 arm1·arm2, 출고 arm3)의 ROS 2 Jazzy 패키지를 둡니다. 핑키 제조사 패키지는 `iponic.repos`로 따로 받습니다.
+심화 16기 2팀 GG 프로젝트 저장소입니다. 관제 PC, 비전 서버, 핑키 3대(pinky1~3), 로봇팔 3대(작업공간 arm1·arm2, 출고 arm3)의 ROS 2 Jazzy 패키지를 둡니다. 핑키 제조사 패키지는 `iponic.repos`로 따로 받습니다.
 
 ## 폴더
 
@@ -9,7 +9,8 @@ interfaces/fleet_interfaces/  msg·srv·action, contract.yaml(인터페이스 �
 config/                       로봇 목록
 pc/                           관제 PC: central, fleet_core, fleet_manager
 pinky/                        핑키 Pi: pinky_fsm, pinky_dock, pinky_nav_config
-arm/                          팔 PC: arm_control, arm_vision
+arm/                          팔 PC: arm_control
+vision/                       비전 서버: arm_vision, pinky_vision
 sim/                          시험: fake_robots, fleet_gz_sim
 bringup/iponic_bringup/       장치별 launch
 tools/, scripts/              시험 도구, 계약 검사
@@ -33,10 +34,13 @@ flowchart TB
   subgraph armw["팔 PC: 작업공간 (유선)"]
     wc["workcell / arm_planner"]
     ac["arm_control ×2"]
-    av["arm_vision ×2"]
   end
   subgraph armo["팔 PC: 출고 (유선)"]
     a3["arm_control (arm3)"]
+  end
+  subgraph vis["비전 서버"]
+    av["arm_vision"]
+    pv["pinky_vision"]
   end
   web -.- central
   central -- "/central/orders" --> fm
@@ -53,13 +57,15 @@ flowchart TB
   bring -- "/scan, /odom" --> nav
   fm == "/workcell/fill_basket" ==> wc
   fm == "/arm3/swap_basket" ==> a3
+  pinky -. "영상 (HTTP)" .-> pv
+  armw -. "영상 (HTTP)" .-> av
   av -- "/armN/vision/items" --> wc
   wc == "follow_joint_trajectory" ==> ac
   ac -- "/arm1/state, /arm2/state" --> central
   a3 -- "/arm3/state" --> central
 ```
 
-실선은 토픽, 점선은 서비스(화면과 central 사이는 ROS 밖), 굵은 선은 액션.
+실선은 토픽, 점선은 서비스(화면과 central 사이, 영상은 ROS 밖), 굵은 선은 액션.
 
 ## 인터페이스
 
@@ -77,7 +83,7 @@ flowchart TB
 | `/fleet/heartbeat` | `std_msgs/Header` | STATE | FMS → 핑키 |
 | `/{pinky}/state` | `RobotState` | STATE | 핑키 → FMS |
 | `/{arm}/state` | `ArmState` | STATE | 팔 → central |
-| `/{arm}/vision/items` (arm1, arm2) | `ItemArray` | LATCHED | 비전 → 작업공간 서버 |
+| `/{arm}/vision/items` (arm1, arm2) | `ItemArray` | LATCHED | 비전 서버 → 작업공간 서버 |
 
 액션
 

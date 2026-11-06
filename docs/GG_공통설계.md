@@ -301,9 +301,10 @@ FMS 쪽:
 | 장치 | 대수 | 구성 | 실행하는 소프트웨어 | 네트워크 |
 |---|---|---|---|---|
 | 관제 PC | 1대 이상 | | 화면, central, FMS(`fleet_manager`) | 유선 |
+| 비전 서버 | 1대 | | arm_vision, pinky_vision | |
 | 공유기 | 전용 1대 | | | |
 | Pinky Pro (pinky1~3) | 3대 | Raspberry Pi 4B(4 GB), RPLidar C1, Dynamixel 2개, 카메라 OV5647, BNO055, 배터리 ADC | pinky_bringup, pinky_fsm, pinky_dock, Nav2 + AMCL | Wi-Fi |
-| JetCobot 작업공간 (arm1, arm2) | 2대 | MyCobot 280(6축 + 그리퍼), 카메라 640×480, 팔마다 팔 PC 1대 | 팔마다 arm_control, arm_vision. 작업공간 서버는 두 팔 PC 중 1곳 | 유선 |
+| JetCobot 작업공간 (arm1, arm2) | 2대 | MyCobot 280(6축 + 그리퍼), 카메라 640×480, 팔마다 팔 PC 1대 | 팔마다 arm_control. 작업공간 서버는 두 팔 PC 중 1곳 | 유선 |
 | JetCobot 출고 (arm3) | 1대 | 같은 구성 | arm_control(`swap_basket` 제공) | 유선 |
 
-Nav2는 핑키 Pi에서, 상품 인식과 작업공간 서버는 팔 PC에서 돈다.
+Nav2는 핑키 Pi에서, 작업공간 서버는 팔 PC에서, arm_vision과 pinky_vision은 비전 서버에서 돈다. 핑키와 팔의 카메라 영상은 HTTP로 비전 서버에 간다.
