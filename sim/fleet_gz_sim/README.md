@@ -2,7 +2,12 @@
 
 Gazebo 안에서 핑키 3대를 돌리는 시험 패키지입니다. 가짜 로봇(`fake_robots`)과 달리 진짜 `fleet_manager`, 진짜 `pinky_fsm`, 진짜 Nav2를 그대로 띄웁니다. central과 팔은 `fake_robots`의 가짜 노드를 씁니다. CI에는 넣지 않고 손으로 돌립니다.
 
-지금 있는 것은 격리 검사(`fleet_gz_sim/isolation.py`)와 그것만 하는 `launch/gz.launch.py`뿐입니다. 시뮬은 실물과 같은 `/pinkyN/...` 이름을 쓰므로, 도메인 43~232, `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`, `ROS_STATIC_PEERS` 없음, Fast DDS가 아니면 시작하지 않습니다.
+지금 있는 것은 격리 검사(`fleet_gz_sim/isolation.py`)와 그것만 하는 `launch/gz.launch.py`뿐입니다. 시뮬은 실물과 같은 `/pinkyN/...` 이름을 쓰므로, 다음이 아니면 시작하지 않습니다.
+
+- 도메인 43~101. ROS 문서의 안전 범위는 0~101이고, 102 이상은 리눅스 기본 임시 포트와 겹치거나 띄울 수 있는 프로세스 수가 적습니다.
+- `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`, `ROS_STATIC_PEERS` 없음.
+- 실제로 불러온 RMW가 Fast DDS(`rmw_fastrtps_cpp`).
+- Fast DDS가 따로 읽는 설정이 없음: `ROS_DISCOVERY_SERVER`, `FASTRTPS_DEFAULT_PROFILES_FILE`, `FASTDDS_DEFAULT_PROFILES_FILE`, `FASTDDS_ENVIRONMENT_FILE`, `FASTDDS_BUILTIN_TRANSPORTS`, 작업 폴더의 `DEFAULT_FASTRTPS_PROFILES.xml`·`DEFAULT_FASTDDS_PROFILES.xml`.
 
 ```bash
 export ROS_DOMAIN_ID=43 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
