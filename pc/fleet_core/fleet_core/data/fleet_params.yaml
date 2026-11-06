@@ -8,7 +8,7 @@ release_margin_extra_m: 0.05  # 시나리오 판정 전용: 반경 + 이 값 = �
 # 0.08 + 0.03 + 0.2 * (0.2 + 0.1) = 0.17 m.
 # 또 d > 2r: 뒤 로봇이 방금 떠난 지점까지 올 수 있다. 앞 로봇이 eps 앞선 보고 직후 멈출 수
 # 있으면 d >= 2r + eps. eps와 tau를 실제 로봇에서 재기 전까지 추정이다.
-# 압박 표는 docs/worklog_2026-11-05.md.
+# 압박 표는 docs/시험_결과.md의 "해제 거리 압박 시험".
 release_distance_m: 0.2
 release_confirm_samples: 3    # 해제 전에 그 거리를 지난 연속 보고 수
 lane_error_warn_m: 0.15       # 레인에서 이만큼 벗어나면 경고, e = |(p - p_i) - s·u|

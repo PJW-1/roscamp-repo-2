@@ -239,7 +239,7 @@ def test_a_waiting_robot_shows_the_zone_and_who_is_in_the_way():
 
 
 def test_sr17_every_robot_state_can_be_told_apart():
-    """대기, 이동, 도킹, 담기 대기, 출고 대기, 오류 + 원인. 표는 worklog에 있다."""
+    """대기, 이동, 도킹, 담기 대기, 출고 대기, 오류 + 원인. 표: docs/시험_결과.md."""
     core, _ = make({"r1": (4, 3), "r2": (2, 0)})
     assert status(core, "r1").task_type == "WAIT"
     core.on_order_board("RUN", [O1])

@@ -1,4 +1,4 @@
-"""tools/model_check.py를 테스트용 작은 지도에서 돌린다. 큰 수치는 worklog에 있다."""
+"""tools/model_check.py를 테스트용 작은 지도에서 돌린다. 큰 수치: docs/시험_결과.md."""
 import sys
 from pathlib import Path
 
@@ -153,7 +153,7 @@ def test_with_three_reports_a_zone_is_freed_on_the_third(small_map):
 
 
 def test_with_three_reports_the_same_way_still_ends_in_a_wait_cycle(small_map, unbundled):
-    """전체 탐색에 몇 분 걸려 그 비교는 worklog에 있다."""
+    """전체 탐색에 몇 분 걸려 그 비교는 docs/시험_결과.md의 "해제 3회 확인의 비교"에 있다."""
     model = model_check.Model(load_lane_map(small_map, bundle_two_way=False), 2, confirm=3)
     model.restore(model.initial)
     for step in unbundled.example:
