@@ -6,7 +6,7 @@ Gazebo에서 핑키 3대를 돌린다. `fleet_manager`·`pinky_fsm`·Nav2는 진
 
 - `ROS_DOMAIN_ID` 43~101
 - `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`, `ROS_STATIC_PEERS` 없음
-- RMW는 `rmw_fastrtps_cpp`, Fast DDS XML 프로파일과 discovery server 없음
+- RMW는 `rmw_fastrtps_cpp`, Fast DDS가 따로 읽는 설정 없음(막는 변수와 파일은 `isolation.py`의 `FAST_DDS_VARIABLES`, `FAST_DDS_FILES`)
 
 ```bash
 export ROS_DOMAIN_ID=43 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
