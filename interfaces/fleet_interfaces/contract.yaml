@@ -1,6 +1,12 @@
 # 이름, 타입, QoS의 유일한 기준. 코드는 `key`로 찾으므로 이름이나 QoS는 여기만 고친다.
 # 팀 합의 전까지 모두 초안이다. QoS depth는 실제 Wi-Fi에서 측정해야 한다.
-version: 0.3-draft
+version: 0.4-draft
+# 0.4 (2026-11-08, 제안): 핑키 FSM 구현 안내 2.2~2.4절.
+# - /fleet/heartbeat를 HEARTBEAT 프로필(reliable, depth 1)로 바꿨다. best_effort는 재전송이 없어
+#   관제가 살아 있어도 Wi-Fi에서 3번 연달아 빠지면(1.5 s) 핑키가 선다. 끊김 판단은 그대로
+#   앱 타이머(heartbeat_timeout_s, 벽시계)로 한다.
+# - MoveTo goal에 path(geometry_msgs/Pose[]), 결과 reason에 PATH_NOT_CONNECTED를 더했다.
+# - RobotState에 STATE_BLOCKED를 더했다.
 # 0.3 (2026-11-06): 제안 중인 heartbeat를 /fms/heartbeat에서 /fleet/heartbeat로 옮겼다.
 # 나머지 이름, 필드, QoS는 그대로다. 0.3에 더하는 것은 모두 제안(팀 합의 전)이다.
 
@@ -12,6 +18,7 @@ qos_profiles:
   STATE: {reliability: best_effort, durability: volatile, depth: 5}
   LATCHED: {reliability: reliable, durability: transient_local, depth: 1}
   EVENT: {reliability: reliable, durability: volatile, depth: 50}
+  HEARTBEAT: {reliability: reliable, durability: volatile, depth: 1}
 
 topics:
   - {key: robot_state, name: "/{pinky}/state", type: fleet_interfaces/msg/RobotState, qos: STATE}
@@ -21,7 +28,8 @@ topics:
   - {key: assignments, name: "/fleet/assignments", type: fleet_interfaces/msg/AssignmentArray, qos: LATCHED}
   - {key: robots, name: "/fleet/robots", type: fleet_interfaces/msg/RobotStatusArray, qos: LATCHED}
   # 제안(팀 합의 전). 로봇이 이 토픽을 못 들으면 스스로 멈춘다. 0.3 전에는 /fms/heartbeat였다.
-  - {key: heartbeat, name: "/fleet/heartbeat", type: std_msgs/msg/Header, qos: STATE}
+  # 0.4부터 HEARTBEAT 프로필(제안). 빠짐 자체가 정지 조건이라 재전송이 필요하다.
+  - {key: heartbeat, name: "/fleet/heartbeat", type: std_msgs/msg/Header, qos: HEARTBEAT}
   - {key: zones, name: "/fleet/zones", type: fleet_interfaces/msg/ZoneStateArray, qos: LATCHED}
   - {key: events, name: "/central/events", type: fleet_interfaces/msg/FleetEvent, qos: EVENT}
 

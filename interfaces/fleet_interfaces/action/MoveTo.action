@@ -1,9 +1,14 @@
 string target_id
 geometry_msgs/Pose2D target_pose
+# 제안(안내 2.4): 따라갈 경로. 첫 점은 로봇이 마지막으로 지난 지점, 끝 점은 target_pose.
+# 비면 지금처럼 target_pose 점 하나로 간다. 두 모드 모두 동작해야 한다(전달사항 2.3절)
+geometry_msgs/Pose[] path
 ---
 string REASON_NAV_ABORTED="NAV_ABORTED"
 string REASON_CANCELED="CANCELED"
 string REASON_TIMEOUT="TIMEOUT"
+# 제안(안내 2.2, R20): path가 로봇의 지금 위치를 지나지 않아 따라가지 않았다
+string REASON_PATH_NOT_CONNECTED="PATH_NOT_CONNECTED"
 
 bool success
 string reason
