@@ -57,7 +57,7 @@ ros2 run fleet_gz_sim drive_check --whole --no-heartbeat-cut  # 비교용: 주�
 ros2 run fleet_gz_sim drive_check --point                     # 팀 main 관제처럼 path 없이 target_pose만
 ```
 
-`drive_check`는 로봇이 서 있는 정지 지점(P-3, W, O 중 하나)에서 출발해 P-3 → W → O → P-3 순서로 돈다. 안내 2.4의 path 방식(제안)으로 `move_to`를 보내고, 로봇이 구간 중간을 지날 때마다 경로를 늘린 새 `move_to`를 보낸다(안내 2.1). 지금 팀 main 관제는 path를 채우지 않고 직선 구간 끝마다 `target_pose`만 보낸다. 이 방식은 `--point`로 잰다(heartbeat 끊기는 하지 않는다). `/fleet/heartbeat`는 2 Hz로 보낸다. 마지막에 heartbeat와 목표를 끊고 정지까지 시간을 잰 뒤, 마지막으로 지난 지점부터 남은 길을 다시 보낸다.
+`drive_check`는 로봇이 서 있는 정지 지점(P-3, W, O 중 하나)에서 출발해 P-3 → W → O → P-3 순서로 돈다. 안내 2.4의 path 방식(제안)으로 `move_to`를 보내고, 로봇이 구간 중간을 지날 때마다 경로를 늘린 새 `move_to`를 보낸다(안내 2.1). 지금 팀 main 관제는 path를 채우지 않고 직선 구간 끝마다 `target_pose`만 보낸다. 이 방식은 `--point`로 잰다. 관제가 잠금을 모두 가진 경우이고(잠금을 나눠 얻으면 관제는 직선 중간 지점을 먼저 보낸다), heartbeat 끊기는 하지 않는다. `/fleet/heartbeat`는 2 Hz로 보낸다. 마지막에 heartbeat와 목표를 끊고 정지까지 시간을 잰 뒤, 마지막으로 지난 지점부터 남은 길을 다시 보낸다.
 
 지표와 2026-11-07 측정값(한 바퀴 + heartbeat 끊기):
 
@@ -70,6 +70,11 @@ ros2 run fleet_gz_sim drive_check --point                     # 팀 main 관제�
 | `PATH_NOT_CONNECTED` | 정상 주행에서 0 | 0 | 0 |
 | 보고 위치 오차 ε(AMCL) 평균 / p95 / 최대 | 작을수록 좋음(R3, 추정 0.03 m) | 0.029 / 0.050 / 0.059 m | 0.023 / 0.040 / 0.051 m |
 | 실시간 비율 | | 1.0 | 0.965 |
+
+2026-11-08 팀 main 기반(이 브랜치)에서 화면 없이 다시 쟀다.
+
+- path 방식(기본): 연장 17회 중 정지 0, 끝 정착 최대 2.35 s, 성공 때 실제 위치 오차 최대 0.065 m, heartbeat 마지막 신호부터 `cmd_vel` 0까지 1.633 s / 실제 정지 1.868 s(0.364 m), 결과 `CANCELED`, `PATH_NOT_CONNECTED` 0, ε 평균 0.023 / p95 0.044 / 최대 0.075 m.
+- `--point`(팀 main 관제 방식): 한 바퀴 목표 18개 모두 성공, 끝 정착 최대 2.72 s, 실제 위치 오차 최대 0.074 m, ε 평균 0.027 / p95 0.051 / 최대 0.078 m.
 
 heartbeat는 끊김 판단 시간(`heartbeat_timeout_s` 1.5 s) 뒤 다음 판단 주기(20 Hz)에 멈추므로 `cmd_vel` 0이 1.5 s를 조금 넘고, 실제 정지는 감속만큼 더 걸린다.
 

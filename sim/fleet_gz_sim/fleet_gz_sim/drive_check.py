@@ -5,7 +5,8 @@
 
 path 방식(안내 2.4, 제안)의 관제처럼 /{robot}/move_to에 path가 든 목표를 보내고, 달리는 중에
 경로를 늘린 새 목표를 보낸다(drive_plan.Trip). --point는 지금 팀 main 관제처럼 path 없이
-target_pose만, 직선 구간마다 보낸다(drive_plan.point_targets).
+target_pose만, 직선 구간마다 보낸다(drive_plan.point_targets). 관제가 잠금을 모두 가진
+경우다. 잠금을 나눠 얻으면 관제는 직선 중간 지점을 먼저 보내고 나중에 늘린다.
 /fleet/heartbeat는 2 Hz로 보낸다. 시각은 모두 벽시계다. 지표:
   1. 경로 연장 때 정지 횟수: 연장 전 0.5 s 달리다가 연장 뒤 0.5 s 안에 cmd_vel 선속도와
      각속도가 모두 0인 채 0.1 s 넘게 이어짐
