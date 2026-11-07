@@ -6,6 +6,7 @@ from fleet_gz_sim.drive_plan import (
     Trip,
     full_stop_after,
     lap_stops,
+    point_targets,
     settle_time,
     speeds,
     still_episodes,
@@ -157,3 +158,13 @@ def test_settle_time_counts_from_the_last_entry_into_the_radius():
              (3.0, (0.9, 0.0)), (4.0, (0.95, 0.0)), (5.0, (0.97, 0.0))]
     assert settle_time(truth, target, 5.0) == pytest.approx(2.0)
     assert settle_time([(0.0, (0.0, 0.0))], target, 1.0) is None
+
+
+def test_point_targets_are_the_ends_of_each_straight_run():
+    """팀 main 관제(점 목표)는 레인 방향이 같은 동안 목표를 늘리고 방향이 바뀌는 지점에서 끊는다."""
+    assert point_targets(POINTS) == [4]
+    assert point_targets([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (1.0, 2.0), (0.0, 2.0)]) == [1, 3, 4]
+
+
+def test_point_targets_treat_directions_equal_to_six_decimals_as_one_run():
+    assert point_targets([(0.0, 0.0), (1.0, 0.0), (2.0, 1e-9)]) == [2]

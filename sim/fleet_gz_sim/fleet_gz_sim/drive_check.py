@@ -3,8 +3,10 @@
     ros2 run fleet_gz_sim drive_check            # 서 있는 정지 지점부터 한 바퀴 + heartbeat 끊기
     ros2 run fleet_gz_sim drive_check --laps 3 --no-heartbeat-cut
 
-관제(fleet_manager)처럼 /{robot}/move_to에 목표를 보내고, 달리는 중에 경로를 늘린 새 목표를
-보낸다(drive_plan.Trip). /fleet/heartbeat는 2 Hz로 보낸다. 시각은 모두 벽시계다. 지표:
+path 방식(안내 2.4, 제안)의 관제처럼 /{robot}/move_to에 path가 든 목표를 보내고, 달리는 중에
+경로를 늘린 새 목표를 보낸다(drive_plan.Trip). --point는 지금 팀 main 관제처럼 path 없이
+target_pose만, 직선 구간마다 보낸다(drive_plan.point_targets).
+/fleet/heartbeat는 2 Hz로 보낸다. 시각은 모두 벽시계다. 지표:
   1. 경로 연장 때 정지 횟수: 연장 전 0.5 s 달리다가 연장 뒤 0.5 s 안에 cmd_vel 선속도와
      각속도가 모두 0인 채 0.1 s 넘게 이어짐
   2. 끝에서 서 있는 시간: 끝 지점 0.15 m 안에 들어온 뒤 성공까지(6 s 넘으면 실패, R13)
@@ -40,6 +42,7 @@ from fleet_gz_sim.drive_plan import (
     Trip,
     full_stop_after,
     lap_stops,
+    point_targets,
     settle_time,
     speeds,
     still_episodes,
@@ -132,12 +135,12 @@ class DriveCheck(Node):
         with self.lock:
             return self.truth[-1][1] if self.truth else None
 
-    def send(self, ids: list[str], points: list[tuple[float, float]]):
-        """관제처럼 만든 목표를 보내고 수락 handle과 결과 기록 dict를 돌려준다."""
+    def send(self, ids: list[str], points: list[tuple[float, float]], with_path: bool = True):
+        """관제처럼 만든 목표를 보내고 결과 기록 dict를 돌려준다. 방향은 마지막 구간 방향."""
         (ax, ay), (bx, by) = points[-2], points[-1]
         goal = MoveTo.Goal(target_id=ids[-1],
                            target_pose=Pose2D(x=bx, y=by, theta=math.atan2(by - ay, bx - ax)))
-        for x, y in points:
+        for x, y in points if with_path else ():
             p = Pose()
             p.position.x, p.position.y = x, y
             goal.path.append(p)
@@ -229,6 +232,48 @@ def drive_trip(node: DriveCheck, lane_map, ids: list[str], cut_heartbeat: bool =
         out["reported_error_m"] = round(math.dist(reported, target), 4) if reported else None
         settle = settle_time(truth, target, record["done"], ARRIVAL_M)
         out["end_settle_s"] = None if settle is None else round(settle, 2)
+    return out
+
+
+def drive_point_trip(node: DriveCheck, lane_map, ids: list[str], timeout: float = 180.0) -> dict:
+    """팀 main 관제처럼 path 없이 target_pose만 보낸다. 직선 구간 끝마다 목표 하나를 보내고
+    성공하면 다음 목표를 보낸다. truth_error_m, end_settle_s는 모든 목표 중 가장 큰 값이다."""
+    points = [lane_map.waypoint_pose(i) for i in ids]
+    out = {"route": "→".join(ids), "mode": "point", "extensions": 0,
+           "stops_at_extension": 0, "linear_zero_at_extension": 0, "extensions_judged": 0}
+    start = time.monotonic()
+    errors, settles, record = [], [], None
+    for i in point_targets(points):
+        record = node.send([ids[i]], [points[i - 1], points[i]], with_path=False)
+        while record["done"] is None and time.monotonic() - start < timeout:
+            time.sleep(0.1)
+        if record["done"] is None or not record["success"]:
+            break
+        with node.lock:
+            truth = list(node.truth)
+        true_xy = min(truth, key=lambda s, done=record["done"]: abs(s[0] - done))[1]
+        errors.append(math.dist(true_xy, points[i]))
+        settle = settle_time(truth, points[i], record["done"], ARRIVAL_M)
+        if settle is not None:
+            settles.append(settle)
+    with node.lock:
+        cmd = list(node.cmd)
+    end = record["done"] or time.monotonic()
+    # 점 목표는 직선 구간 끝마다 선다(팀 main 방식). 그 정지도 여기 들어간다
+    out["linear_zero_episodes"] = still_episodes([(t, v) for t, v, _ in cmd], start, end)
+    out["halt_episodes"] = still_episodes(
+        [(t, max(abs(v), 0.2 * abs(w))) for t, v, w in cmd], start, end)
+    out["goals"] = len(errors)
+    if record["done"] is None:
+        out.update(result="timeout")
+        return out
+    out.update(result="success" if record["success"] else record["reason"])
+    if record["success"]:
+        out["truth_error_m"] = round(max(errors), 4)
+        reported = node.pose()
+        out["reported_error_m"] = (round(math.dist(reported, points[-1]), 4)
+                                   if reported else None)
+        out["end_settle_s"] = round(max(settles), 2) if settles else None
     return out
 
 
@@ -329,12 +374,15 @@ def run(args) -> dict:
             raise RuntimeError(f"robot at ({x:.2f}, {y:.2f}) is not on {', '.join(CYCLE)}")
         stops = lap_stops(CYCLE, start, args.laps)
         for a, b in zip(stops, stops[1:], strict=False):
-            trips.append(drive_trip(node, lane_map, lane_map.plan(a, b), extend=args.extend))
+            ids = lane_map.plan(a, b)
+            trips.append(drive_point_trip(node, lane_map, ids) if args.point
+                         else drive_trip(node, lane_map, ids, extend=args.extend))
             print(json.dumps(trips[-1], ensure_ascii=False), flush=True)
             if trips[-1]["result"] != "success":
                 break
             time.sleep(1.0)
-        if args.heartbeat_cut and trips and trips[-1]["result"] == "success":
+        if (args.heartbeat_cut and not args.point and trips
+                and trips[-1]["result"] == "success"):
             ids = lane_map.plan(stops[-1], stops[1])
             trips.append(drive_trip(node, lane_map, ids, cut_heartbeat=True))
             print(json.dumps(trips[-1], ensure_ascii=False), flush=True)
@@ -360,6 +408,9 @@ def main(argv=None) -> None:
     parser.add_argument("--no-heartbeat-cut", dest="heartbeat_cut", action="store_false")
     parser.add_argument("--whole", dest="extend", action="store_false",
                         help="비교용: 주행마다 전체 경로를 한 번에 보내고 늘리지 않는다")
+    parser.add_argument("--point", action="store_true",
+                        help="팀 main 관제처럼 path 없이 target_pose만 직선 구간마다 보낸다. "
+                             "heartbeat 끊기는 하지 않는다")
     parser.add_argument("--lane-map", default=None)
     parser.add_argument("--contract", default=None)
     parser.add_argument("--json", default=None, help="요약을 이 파일에도 쓴다")

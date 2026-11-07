@@ -54,9 +54,10 @@ ros2 launch fleet_gz_sim one_pinky.launch.py gui:=false rviz:=false   # 화면 �
 ros2 run fleet_gz_sim drive_check                         # 관제 흉내: 한 바퀴 + heartbeat 끊기, 지표 출력
 ros2 run fleet_gz_sim drive_check --laps 3 --no-heartbeat-cut
 ros2 run fleet_gz_sim drive_check --whole --no-heartbeat-cut  # 비교용: 주행마다 경로 전체를 한 번에
+ros2 run fleet_gz_sim drive_check --point                     # 팀 main 관제처럼 path 없이 target_pose만
 ```
 
-`drive_check`는 로봇이 서 있는 정지 지점(P-3, W, O 중 하나)에서 출발해 P-3 → W → O → P-3 순서로 돈다. 관제처럼 `move_to`를 보내고, 로봇이 구간 중간을 지날 때마다 경로를 늘린 새 `move_to`를 보낸다(안내 2.1). `/fleet/heartbeat`는 2 Hz로 보낸다. 마지막에 heartbeat와 목표를 끊고 정지까지 시간을 잰 뒤, 마지막으로 지난 지점부터 남은 길을 다시 보낸다.
+`drive_check`는 로봇이 서 있는 정지 지점(P-3, W, O 중 하나)에서 출발해 P-3 → W → O → P-3 순서로 돈다. 안내 2.4의 path 방식(제안)으로 `move_to`를 보내고, 로봇이 구간 중간을 지날 때마다 경로를 늘린 새 `move_to`를 보낸다(안내 2.1). 지금 팀 main 관제는 path를 채우지 않고 직선 구간 끝마다 `target_pose`만 보낸다. 이 방식은 `--point`로 잰다(heartbeat 끊기는 하지 않는다). `/fleet/heartbeat`는 2 Hz로 보낸다. 마지막에 heartbeat와 목표를 끊고 정지까지 시간을 잰 뒤, 마지막으로 지난 지점부터 남은 길을 다시 보낸다.
 
 지표와 2026-11-07 측정값(한 바퀴 + heartbeat 끊기):
 

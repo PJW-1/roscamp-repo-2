@@ -9,11 +9,12 @@ PASSED_M = 0.10  # 지점에서 이만큼 가까워지면 지난 것으로 친�
 
 
 class Trip:
-    """지점 목록을 따라가는 주행 하나. 관제처럼 경로를 조금씩 늘려 보낸다.
+    """지점 목록을 따라가는 주행 하나. path 방식 관제처럼 경로를 조금씩 늘려 보낸다.
 
-    관제는 잠금을 더 얻을 때마다 로봇이 마지막으로 지난 지점에서 시작하는 더 긴 경로를
-    보낸다(안내 2.1, 2.2). 여기서는 로봇이 구간의 extend_at(비율)을 지나면 ahead+1개
-    앞 지점까지 늘린다. 그래서 경로 끝은 늘 로봇보다 한 구간 반 이상 앞에 있다.
+    path 방식(안내 2.4, 제안)의 관제는 잠금을 더 얻을 때마다 로봇이 마지막으로 지난
+    지점에서 시작하는 더 긴 경로를 보낸다(안내 2.1, 2.2). 여기서는 로봇이 구간의
+    extend_at(비율)을 지나면 ahead+1개 앞 지점까지 늘린다. 그래서 경로 끝은 늘 로봇보다
+    한 구간 반 이상 앞에 있다.
     """
 
     def __init__(self, points: Sequence[Point], ahead: int = 2, extend_at: float = 0.5):
@@ -57,6 +58,17 @@ def lap_stops(cycle: Sequence[str], start: str, laps: int) -> list[str]:
     i = list(cycle).index(start)
     order = [*cycle[i:], *cycle[:i]]
     return order * laps + [start]
+
+
+def point_targets(points: Sequence[Point]) -> list[int]:
+    """팀 main 관제(점 목표)가 차례로 보내는 목표 지점 번호. 레인 방향이 같은 직선 구간의
+    끝마다 하나다. 관제(controller._step_between)처럼 방향을 소수 6자리로 반올림해 비교한다."""
+    def step(i: int) -> Point:
+        (ax, ay), (bx, by) = points[i], points[i + 1]
+        d = math.hypot(bx - ax, by - ay)
+        return (round((bx - ax) / d, 6), round((by - ay) / d, 6))
+    last = len(points) - 1
+    return [i for i in range(1, last + 1) if i == last or step(i) != step(i - 1)]
 
 
 def stopped_after(samples: Sequence[tuple[float, float]], t: float, before: float = 0.5,
