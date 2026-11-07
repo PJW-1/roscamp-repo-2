@@ -32,9 +32,10 @@
 | Nav2 성공 | 목표에서 0.15 m 안일 때만 성공. 멀면 남은 경로를 다시 보낸다(3번까지) | R4, 전달사항 6.1 goal_done |
 | 경로 끝 0.15 m 안 | 0.5 s마다 남은 경로를 다시 보낸다 | R13 |
 | Nav2 실패, 앞에 물체 없음 | `NAV_ABORTED` | R8 |
-| 이동 중 1 s 서 있고 경로 앞 0.5 m 안에 물체 | `BLOCKED`. 목표는 끝내지 않는다. 물체가 1 s 안 보이면 끄고 남은 경로를 다시 보낸다. 취소된 뒤에도 물체가 있으면 `BLOCKED` | R9, 전달사항 질문 4. 수치는 제안 |
+| FollowPath 거절(서버 없음 포함) | 남아 있는 FollowPath를 모두 취소해 세우고 `NAV_ABORTED`. 교체 때 앞 목표를 취소하지 않으므로 앞 것이 아직 달릴 수 있다 | 안내 2.1 |
+| 이동 중 1 s 서 있고 경로 앞 0.5 m 안에 물체 | `BLOCKED`. Nav2가 물체 때문에 멈춰도 바로 끝내지 않고, 물체가 1 s 안 보이면 끄고 남은 경로를 다시 보낸다. Nav2가 멈춘 뒤 `block_timeout_s`(10 s) 안에 비키지 않으면 `TIMEOUT`으로 끝낸다. 취소된 뒤에도 물체가 있으면 `BLOCKED` | R9, 전달사항 질문 4, 구현_약속(못 가면 실패나 `TIMEOUT`). 수치는 제안 |
 | 목표 실행 중 heartbeat·목표 수락이 1.5 s 없음 | FollowPath를 취소해 세우고 `CANCELED`로 끝낸다(FakePinky와 같다). 벽시계로 잰다 | R10, 전달사항 2.6절, 구현_약속 |
-| 위치를 모름 | `state`를 내지 않는다(팀 main `RobotState`에 그 값이 없어 틀린 위치를 보내지 않는다. 관제는 `comm_timeout_s` 뒤 통신 두절로 본다). 이때 온 목표는 `NAV_ABORTED` | 구현_약속, 이 FSM의 선택 |
+| 위치를 모름 | `state`를 내지 않는다(팀 main `RobotState`에 그 값이 없어 틀린 위치를 보내지 않는다. 관제는 `comm_timeout_s` 뒤 통신 두절로 본다). 이때 온 목표는 `NAV_ABORTED`. 실행 중에 위치를 잃으면 FollowPath를 취소해 세우고 `NAV_ABORTED` | 구현_약속, 이 FSM의 선택 |
 | `dock` | **pinky_dock이 아직 없어** 이동을 멈추고 실패(`success=false`)를 돌려준다. 도킹을 했다고 꾸미지 않는다 | — |
 
 "물체"는 local costmap 값이 99(INSCRIBED) 이상인 칸이다. Nav2 local costmap은 `always_send_full_costmap: true`여야 한다.

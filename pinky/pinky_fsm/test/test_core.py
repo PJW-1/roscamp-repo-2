@@ -14,6 +14,7 @@ from pinky_fsm.core import (
     MOVING,
     NAV_ABORTED,
     PATH_NOT_CONNECTED,
+    TIMEOUT,
     CancelNav,
     Finish,
     FsmParams,
@@ -73,6 +74,16 @@ def test_goal_without_a_pose_fails_at_once():
     fsm = PinkyFsm(FsmParams())
     cmds = move(fsm, "g1", 0.0, pose=None)
     assert cmds == [Finish("g1", False, NAV_ABORTED)]
+
+
+def test_losing_the_pose_while_moving_stops_and_fails():
+    """위치 없이 달리지 않는다. state도 쉬므로 관제는 로봇이 어디 있는지 모른다."""
+    fsm = ready()
+    move(fsm, "g1", 0.0)
+    fsm.heartbeat(0.5)
+    cmds = fsm.tick(0.5, None, DRIVING, no_obstacle)
+    assert cmds == [Finish("g1", False, NAV_ABORTED), CancelNav()]
+    assert fsm.state() is None
 
 
 # ---- 경로 따라가기 -----------------------------------------------------------------------
@@ -236,7 +247,18 @@ def test_rejected_nav_goal_fails_with_nav_aborted():
     fsm = ready()
     [send] = sends(move(fsm, "g1", 1.0))
     assert fsm.nav_result(send.seq, "rejected", 1.1, (*P3, NORTH), no_obstacle) == [
-        Finish("g1", False, NAV_ABORTED)]
+        Finish("g1", False, NAV_ABORTED), CancelNav()]
+
+
+def test_rejected_replacement_stops_the_follow_path_still_running():
+    """교체 때 앞 FollowPath를 취소하지 않으므로(안내 2.1), 새 것이 거절되면 앞 것이 남는다."""
+    fsm = ready()
+    move(fsm, "g1", 0.0)
+    fsm.heartbeat(0.5)
+    fsm.tick(0.5, (0.35, 1.70, NORTH), DRIVING, no_obstacle)
+    [second] = sends(move(fsm, "g2", 0.6, pose=(0.35, 1.70, NORTH)))
+    cmds = fsm.nav_result(second.seq, "rejected", 0.7, (0.35, 1.72, NORTH), no_obstacle)
+    assert cmds == [Finish("g2", False, NAV_ABORTED), CancelNav()]
 
 
 # ---- 끝 근처 재전송 (R13) -------------------------------------------------------------------
@@ -389,6 +411,38 @@ def test_blocked_stays_after_cancel_while_the_obstacle_remains():
     assert fsm.state() == BLOCKED
     fsm.tick(5.05, here, STILL, no_obstacle)
     assert fsm.state() == IDLE
+
+
+def test_blocked_goal_ends_with_timeout_when_the_obstacle_stays():
+    """구현_약속: 멈춰서 진행할 수 없으면 반드시 실패나 TIMEOUT. 관제에는 시간 제한이 없다."""
+    fsm = ready(block_timeout_s=10.0)
+    [send] = sends(move(fsm, "g1", 0.0))
+    here = (0.35, 1.70, NORTH)
+    fsm.tick(1.0, here, STILL, obstacle)
+    assert fsm.nav_result(send.seq, "aborted", 2.0, here, obstacle) == []
+    for t in (5.0, 11.9):
+        fsm.heartbeat(t)
+        assert fsm.tick(t, here, STILL, obstacle) == []
+    fsm.heartbeat(12.0)
+    assert fsm.tick(12.0, here, STILL, obstacle) == [Finish("g1", False, TIMEOUT)]
+    assert fsm.state() == BLOCKED and fsm.current_goal() == ""
+
+
+def test_block_timeout_counts_again_after_the_obstacle_clears():
+    fsm = ready(block_timeout_s=10.0)
+    [send] = sends(move(fsm, "g1", 0.0))
+    here = (0.35, 1.70, NORTH)
+    fsm.nav_result(send.seq, "aborted", 1.0, here, obstacle)
+    fsm.heartbeat(1.5)
+    fsm.tick(1.5, here, STILL, no_obstacle)
+    fsm.heartbeat(2.6)
+    [again] = sends(fsm.tick(2.6, here, STILL, no_obstacle))  # 비켰다. 다시 보낸다
+    fsm.nav_result(again.seq, "aborted", 9.0, here, obstacle)
+    for t in (10.0, 18.9):
+        fsm.heartbeat(t)
+        assert Finish("g1", False, TIMEOUT) not in fsm.tick(t, here, STILL, obstacle)
+    fsm.heartbeat(19.0)
+    assert Finish("g1", False, TIMEOUT) in fsm.tick(19.0, here, STILL, obstacle)
 
 
 def test_heartbeat_loss_while_blocked_ends_the_goal():
