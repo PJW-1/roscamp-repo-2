@@ -51,3 +51,8 @@ def test_a_box_next_to_the_end_of_the_line_is_not_passed_straight():
     box = (2.0, 0.66, 0.06)  # 목표 바로 옆. 투영이 선분 끝(t=1)에 걸린다
     points = plan_path((1.0, 0.6), (2.0, 0.6), [box], clearance_m=0.12, polygon=FLOOR)
     assert points is None or gap_to(points, 2.0, 0.66) >= 0.03 + 0.12 - 1e-9
+
+
+def test_a_zero_length_request_inside_a_box_gets_no_path():
+    assert plan_path((1.5, 0.6), (1.5, 0.6), [(1.52, 0.6, 0.06)]) is None
+    assert plan_path((1.5, 0.6), (1.5, 0.6)) == [(1.5, 0.6), (1.5, 0.6)]

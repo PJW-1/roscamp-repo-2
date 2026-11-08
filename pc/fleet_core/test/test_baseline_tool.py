@@ -442,3 +442,11 @@ def test_the_box_scenario_runs_in_path_mode_only(tmp_path):
                           "--seeds", "1", "--out", str(out)]) == 0
     with out.open(encoding="utf-8") as f:
         assert [r["mode"] for r in csv.DictReader(f)] == ["path"]
+
+
+def test_the_free_floor_of_the_world_is_the_polygon_itself():
+    """출입구 옆 허용(half_width)은 SimWorld의 바닥 검사에 쓰지 않는다."""
+    world = baseline.build_world(baseline.load_scenario("free_area_basic"), "feature_map_free", 1,
+                                 "path")
+    assert world._on_free_floor(1.5, 0.7)
+    assert not world._on_free_floor(1.5, 0.47), "가장자리에서 0.03 m 밖, 출입구에서 멀다"

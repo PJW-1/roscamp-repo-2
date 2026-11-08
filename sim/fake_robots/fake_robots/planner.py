@@ -43,6 +43,8 @@ def plan_path(start, goal, boxes=(), clearance_m: float = 0.12, polygon=None,
     start, goal = (float(start[0]), float(start[1])), (float(goal[0]), float(goal[1]))
     length = math.dist(start, goal)
     if length == 0.0:
+        if any(math.dist(start, (bx, by)) < size / 2 + clearance_m for bx, by, size in boxes):
+            return None
         return [start, goal]
     ux, uy = (goal[0] - start[0]) / length, (goal[1] - start[1]) / length
     hits = []

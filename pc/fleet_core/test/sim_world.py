@@ -476,8 +476,10 @@ class SimWorld:
                                      (cmd.robot, cmd.plan_id, points)))
 
     def _on_free_floor(self, x, y) -> bool:
+        """다각형 바닥 그 자체(출입구 옆 half_width 허용 없이)."""
         free_areas = getattr(self.site, "free_areas", {})
-        return any(not self.site.free_path_outside(name, [(x, y)]) for name in free_areas)
+        return any(self.site._polygon_gap(area.polygon, x, y) <= LINE_TOLERANCE_M
+                   for area in free_areas.values())
 
     def _preempt(self, r):
         """교체되는 실행 중 목표도 ROS 액션처럼 결과를 보고한다."""
