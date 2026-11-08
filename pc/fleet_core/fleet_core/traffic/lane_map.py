@@ -87,6 +87,33 @@ def _polygon_edges(polygon) -> list[tuple]:
     return [(a, b) for a, b in zip(polygon, polygon[1:] + polygon[:1], strict=True)]
 
 
+def _box_edges(box) -> list[tuple]:
+    x0, y0, x1, y1 = box
+    return _polygon_edges(((x0, y0), (x1, y0), (x1, y1), (x0, y1)))
+
+
+def _in_box(x, y, box) -> bool:
+    return box[0] <= x <= box[2] and box[1] <= y <= box[3]
+
+
+def _box_segment(box, a, b) -> float:
+    """닫힌 사각형과 선분 사이 거리. 끝점이 안이거나 변을 지나면 0."""
+    if _in_box(*a, box) or _in_box(*b, box):
+        return 0.0
+    return min(_segment_distance(p, q, a, b) for p, q in _box_edges(box))
+
+
+def _box_touches_polygon(box, polygon) -> bool:
+    """닫힌 사각형과 닫힌 다각형이 한 점이라도 함께 갖나."""
+    corners = [p for p, _ in _box_edges(box)]
+    if any(_inside_polygon(x, y, polygon) for x, y in corners):
+        return True
+    if any(_in_box(x, y, box) for x, y in polygon):
+        return True
+    return any(_segment_distance(p, q, a, b) <= 1e-9
+               for p, q in _box_edges(box) for a, b in _polygon_edges(polygon))
+
+
 def _segment_distance(a1, a2, b1, b2) -> float:
     """두 선분 사이 최단 거리. 선분은 (x, y) 두 개."""
     def side(p, q, r):
@@ -254,6 +281,27 @@ class LaneMap:
 
     def inside_free_floor(self, area: str, x: float, y: float) -> bool:
         return _inside_polygon(x, y, self.free_areas[area].polygon)
+
+    def free_cells(self, area: str) -> dict:
+        """F-2 칸: "구역/ix,iy" -> (x0, y0, x1, y1). 다각형을 감싸는 사각형의 왼쪽 아래에서
+        cell_m 간격으로 자르고, 바닥에 닿는(경계 포함) 칸만 남긴다. 칸은 잘라내지 않는다.
+        """
+        free = self.free_areas[area]
+        xs, ys = [x for x, _ in free.polygon], [y for _, y in free.polygon]
+        x0, y0, c = min(xs), min(ys), free.cell_m
+        cells = {}
+        for ix in range(max(1, math.ceil((max(xs) - x0) / c - 1e-9))):
+            for iy in range(max(1, math.ceil((max(ys) - y0) / c - 1e-9))):
+                box = (x0 + ix * c, y0 + iy * c, x0 + (ix + 1) * c, y0 + (iy + 1) * c)
+                if _box_touches_polygon(box, free.polygon):
+                    cells[f"{area}/{ix},{iy}"] = box
+        return cells
+
+    def cells_near(self, area: str, points, clearance: float) -> frozenset:
+        """꺾은선에서 clearance 안에 드는 칸 이름들(경계 포함)."""
+        segments = list(zip(points, points[1:], strict=False)) or [(points[0], points[0])]
+        return frozenset(name for name, box in self.free_cells(area).items()
+                         if min(_box_segment(box, a, b) for a, b in segments) <= clearance)
 
     def _station(self, name: str, raw: dict) -> Station:
         dock = self._known(_waypoint_id(raw["dock"]), f"station {name}")
