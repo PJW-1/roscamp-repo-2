@@ -137,3 +137,43 @@ def test_every_blocked_lane_leaves_a_way_around():
         for tail, head in tails:
             exits = [lane for lane in LANES.lanes if lane[0] == tail and lane[1] != head]
             assert exits, f"{one.label}: {tail} has no other exit than {head}"
+
+
+def _reachable(start, shut) -> set:
+    """Waypoints a detour from start can reach: no shut lane, no passing through a parking
+    spot (detour.py does not route through the waiting queue)."""
+    parking = set(LANES.parking)
+    seen, todo = {start}, [start]
+    while todo:
+        here = todo.pop()
+        for a, b in LANES.lanes:
+            if a == here and (a, b) not in shut and b not in seen:
+                seen.add(b)
+                if b not in parking:
+                    todo.append(b)
+    return seen
+
+
+def docks_cut_off(lane) -> list[tuple[str, str]]:
+    """(tail, dock) pairs a box on lane (and its reverse) cuts off: reachable before, not after."""
+    a, b = lane
+    shut = {(a, b), (b, a)}
+    tails = [a] if (b, a) not in LANES.lanes else [a, b]
+    docks = [station.dock for station in LANES.stations.values()]
+    return [(tail, dock) for tail in tails for dock in docks
+            if dock in _reachable(tail, set()) and dock not in _reachable(tail, shut)]
+
+
+def test_every_blocked_lane_keeps_both_docks_reachable():
+    """Another exit is not enough: through it the robot must still reach WORK and OUTBOUND
+    (Codex review of the portfolio map)."""
+    schedule = obstacles.load_schedule(PKG / "obstacles" / "warehouse.yaml", LANES)
+    for one in schedule.obstacles:
+        assert docks_cut_off(one.lane) == [], one.label
+
+
+def test_the_dock_check_catches_an_exit_that_leads_nowhere():
+    """X3 has another exit than E3, so the exit test passes, yet a box on X3->E3 cuts X3 off
+    from both docks."""
+    assert any(lane[0] == "X3" and lane[1] != "E3" for lane in LANES.lanes)
+    assert docks_cut_off(("X3", "E3")) == [("X3", "W"), ("X3", "O")]
