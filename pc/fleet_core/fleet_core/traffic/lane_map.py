@@ -289,19 +289,26 @@ class LaneMap:
         free = self.free_areas[area]
         xs, ys = [x for x, _ in free.polygon], [y for _, y in free.polygon]
         x0, y0, c = min(xs), min(ys), free.cell_m
+        def count(lo, hi):  # 마지막 칸이 바닥 끝을 덮을 때까지(반올림으로 모자라지 않게)
+            n = max(1, math.ceil((hi - lo) / c))
+            while lo + n * c < hi:
+                n += 1
+            return n
+
         cells = {}
-        for ix in range(max(1, math.ceil((max(xs) - x0) / c - 1e-9))):
-            for iy in range(max(1, math.ceil((max(ys) - y0) / c - 1e-9))):
+        for ix in range(count(x0, max(xs))):
+            for iy in range(count(y0, max(ys))):
                 box = (x0 + ix * c, y0 + iy * c, x0 + (ix + 1) * c, y0 + (iy + 1) * c)
                 if _box_touches_polygon(box, free.polygon):
                     cells[f"{area}/{ix},{iy}"] = box
         return cells
 
     def cells_near(self, area: str, points, clearance: float) -> frozenset:
-        """꺾은선에서 clearance 안에 드는 칸 이름들(경계 포함)."""
+        """꺾은선에서 clearance 안에 드는 칸 이름들(경계 포함, 반올림은 더 잡는 쪽)."""
         segments = list(zip(points, points[1:], strict=False)) or [(points[0], points[0])]
+        reach = clearance + 1e-9
         return frozenset(name for name, box in self.free_cells(area).items()
-                         if min(_box_segment(box, a, b) for a, b in segments) <= clearance)
+                         if min(_box_segment(box, a, b) for a, b in segments) <= reach)
 
     def _station(self, name: str, raw: dict) -> Station:
         dock = self._known(_waypoint_id(raw["dock"]), f"station {name}")

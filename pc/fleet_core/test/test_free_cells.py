@@ -13,13 +13,15 @@ from test_free_areas import BASE
 TRIANGLE = [[1.0, 0.5], [2.0, 0.5], [1.0, 1.5]]
 
 
-def site(polygon=None, cell_m=0.35):
+def site(polygon=None, cell_m=0.35, g2=None):
     data = copy.deepcopy(BASE)
     if polygon is not None:
         data["free_areas"]["PLAZA"]["polygon"] = polygon
-        # 출입구는 바닥 가장자리여야 한다: G2를 삼각형 밑변으로 옮긴다
-        g2 = next(w for w in data["waypoints"] if w["id"] == "G2")
-        g2["x"], g2["y"] = 1.5, 0.5
+    if polygon is TRIANGLE:  # 출입구는 바닥 가장자리여야 한다: G2를 삼각형 밑변으로 옮긴다
+        g2 = (1.5, 0.5)
+    if g2 is not None:
+        gate = next(w for w in data["waypoints"] if w["id"] == "G2")
+        gate["x"], gate["y"] = g2
     data["free_areas"]["PLAZA"]["cell_m"] = cell_m
     return LaneMap(data)
 
@@ -70,3 +72,15 @@ def test_cells_near_a_path_are_cells_of_the_floor():
     s = site(TRIANGLE)
     got = s.cells_near("PLAZA", [(1.0, 1.0), (1.4, 0.6), (2.0, 0.5)], 0.3)
     assert got and got <= set(s.free_cells("PLAZA"))
+
+
+def test_a_floor_a_hair_wider_than_whole_cells_gets_one_more_column():
+    wide = 2.0 + 1e-10
+    s = site([[1.0, 0.5], [wide, 0.5], [wide, 1.5], [1.0, 1.5]], cell_m=0.5)
+    assert {name.split("/")[1].split(",")[0] for name in s.free_cells("PLAZA")} == {"0", "1", "2"}
+
+
+def test_a_cell_exactly_clearance_away_is_taken_despite_rounding():
+    # 칸 0,0 위 경계 0.5 + 0.35는 부동소수로 1.0 - 0.15보다 조금 아래다
+    s = site()
+    assert "PLAZA/0,0" in s.cells_near("PLAZA", [(1.1, 1.0)], 0.15)
