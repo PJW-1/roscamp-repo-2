@@ -166,5 +166,49 @@ def test_an_arm_is_drawn_from_parts_but_collides_on_its_base_only(tmp_path):
         "arm1"]
     parts = [v for v in link.iter("visual") if v.get("name").startswith("arm1")]
     assert len(parts) >= 5 and any(v.find(".//cylinder") is not None for v in parts)
-    for v in parts[1:]:  # 받침 위 부품
-        assert float(v.find("pose").text.split()[2]) > arm.height_m
+    for v in parts[1:]:  # 받침 위 부품: 가장 낮은 점도 라이다 평면 위
+        assert _lowest_z(v) >= arena.LIDAR_Z_M + arena.LIDAR_MARGIN_M, v.get("name")
+        assert _lowest_z(v) >= arm.height_m - 1e-9, v.get("name")
+
+
+def _lowest_z(visual) -> float:
+    """Lowest point of a visual part: its centre minus the vertical half extent."""
+    pose = [float(v) for v in visual.find("pose").text.split()]
+    z, pitch = pose[2], pose[4]
+    geometry = visual.find("geometry")
+    if geometry.find("cylinder") is not None:
+        radius = float(geometry.find(".//radius").text)
+        length = float(geometry.find(".//length").text)
+        return z - abs(math.cos(pitch)) * length / 2 - abs(math.sin(pitch)) * radius
+    if geometry.find("sphere") is not None:
+        return z - float(geometry.find(".//radius").text)
+    sx, _, sz = (float(v) for v in geometry.find(".//size").text.split())
+    return z - abs(math.cos(pitch)) * sz / 2 - abs(math.sin(pitch)) * sx / 2
+
+
+@pytest.mark.parametrize("resolution", [arena.COARSE_M, arena.FINE_M])
+def test_a_thin_off_grid_box_still_fills_the_cells_it_touches(tmp_path, resolution):
+    """A box narrower than a cell, between cell centres, must not vanish from the map."""
+    text = TOY + "  - {name: slat, kind: rack, x0: 2.63, y0: 1.003, x1: 2.645, y1: 1.008}\n"
+    site = arena.load_site(site_file(tmp_path, text))
+    grid = arena.occupancy(resolution, site)
+    ox, oy = site.map_origin
+    for x in (2.631, 2.644):
+        assert grid[int((1.005 - oy) // resolution)][int((x - ox) // resolution)], x
+
+
+@pytest.mark.parametrize("change", [
+    ("x0: 2.60", "x0: .nan"),
+    ("y1: 2.40, height_m", "y1: .inf, height_m"),
+    ("height_m: 0.45", "height_m: .inf"),
+    ("bounds_m: [0.0", "bounds_m: [.nan"),
+])
+def test_a_site_file_with_a_non_finite_number_is_refused(tmp_path, change):
+    with pytest.raises(arena.SiteError, match="finite"):
+        arena.load_site(site_file(tmp_path, TOY.replace(*change)))
+
+
+def test_a_site_file_with_a_duplicate_key_is_refused(tmp_path):
+    text = TOY.replace("kind: rack,", "kind: rack, kind: pillar,")
+    with pytest.raises(arena.SiteError, match="duplicate"):
+        arena.load_site(site_file(tmp_path, text))

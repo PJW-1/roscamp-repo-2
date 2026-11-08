@@ -101,10 +101,29 @@ def obstacles(site: Site = LANE_ARENA) -> list[Box]:
     return [*walls(site), *site.features]
 
 
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """safe_load that refuses a key given twice in one mapping (safe_load keeps the last)."""
+
+
+def _unique_mapping(loader, node, deep=False):
+    keys = [loader.construct_object(k, deep=deep) for k, _ in node.value]
+    for key in keys:
+        if keys.count(key) > 1:
+            raise yaml.constructor.ConstructorError(
+                None, None, f"duplicate key {key!r}", node.start_mark)
+    return loader.construct_mapping(node, deep)
+
+
+_UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _unique_mapping)
+
+
 def load_site(path) -> Site:
     """sites/<이름>.yaml을 읽는다. 잘못된 파일은 SiteError."""
     path = Path(path)
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    try:
+        data = yaml.load(path.read_text(encoding="utf-8"), Loader=_UniqueKeyLoader) or {}
+    except yaml.constructor.ConstructorError as e:
+        raise SiteError(f"{path}: {e.problem}") from e
     if not isinstance(data, dict):
         raise SiteError(f"{path}: expected a mapping")
     extra = set(data) - {"lane_map", "bounds_m", "boxes"}
@@ -114,6 +133,8 @@ def load_site(path) -> Site:
         x0, y0, x1, y1 = (float(v) for v in data["bounds_m"])
     except (KeyError, TypeError, ValueError) as e:
         raise SiteError(f"{path}: bounds_m must be [x0, y0, x1, y1]") from e
+    if not all(math.isfinite(v) for v in (x0, y0, x1, y1)):
+        raise SiteError(f"{path}: bounds_m must be finite numbers")
     if x1 <= x0 or y1 <= y0:
         raise SiteError(f"{path}: bounds_m is empty")
     site = Site(path.stem, (x0, y0, x1, y1), (), str(data.get("lane_map") or ""))
@@ -145,6 +166,8 @@ def _site_box(path: Path, raw) -> Box:
                   float(raw.get("height_m", DEFAULT_HEIGHT_M[kind])))
     except (KeyError, TypeError, ValueError) as e:
         raise SiteError(f"{path}: box {raw.get('name')} needs name, x0, y0, x1, y1") from e
+    if not all(math.isfinite(v) for v in (box.x0, box.y0, box.x1, box.y1, box.height_m)):
+        raise SiteError(f"{path}: box {box.name} needs finite numbers")
     if box.x1 <= box.x0 or box.y1 <= box.y0:
         raise SiteError(f"{path}: box {box.name} is empty")
     if box.height_m < LIDAR_Z_M + LIDAR_MARGIN_M:
@@ -195,12 +218,22 @@ def min_clearance(lane_map, site: Site = LANE_ARENA) -> tuple[float, str, str]:
 
 
 def occupancy(resolution: float, site: Site = LANE_ARENA) -> list[list[bool]]:
-    """칸 중심이 벽·상자 안이면 점유. 줄은 아래(y 작은 쪽)부터."""
+    """벽·상자가 조금이라도(칸의 백만분의 1 넘게) 걸친 칸은 점유. 줄은 아래(y 작은 쪽)부터.
+    격자에 맞춘 상자는 칸 중심으로 판정할 때와 같고, 얇거나 어긋난 상자도 지도에서 사라지지 않는다."""
     nx, ny = round(site.map_size[0] / resolution), round(site.map_size[1] / resolution)
     ox, oy = site.map_origin
-    boxes = obstacles(site)
-    return [[any(b.contains(ox + (i + 0.5) * resolution, oy + (j + 0.5) * resolution)
-                 for b in boxes) for i in range(nx)] for j in range(ny)]
+    grid = [[False] * nx for _ in range(ny)]
+    hair = 1e-6  # 칸 단위
+
+    def cells(lo: float, hi: float, origin: float, n: int) -> range:
+        return range(max(0, math.floor((lo - origin) / resolution + hair)),
+                     min(n, math.ceil((hi - origin) / resolution - hair)))
+
+    for b in obstacles(site):
+        for j in cells(b.y0, b.y1, oy, ny):
+            for i in cells(b.x0, b.x1, ox, nx):
+                grid[j][i] = True
+    return grid
 
 
 def pgm(resolution: float, site: Site = LANE_ARENA) -> bytes:
@@ -352,7 +385,7 @@ def world_sdf(lane_map, render_engine: str = "ogre2", site: Site = LANE_ARENA) -
 
 def generate(out: Path, lane_map, render_engine: str = "ogre2", site: Site = LANE_ARENA) -> None:
     value, lane, box = min_clearance(lane_map, site)
-    if value < CLEARANCE_M:
+    if value < CLEARANCE_M - 1e-9:  # 0.25 m exactly is allowed despite float rounding
         raise ValueError(f"{lane} is {value:.3f} m from {box} (needs {CLEARANCE_M} m)")
     (out / "worlds").mkdir(parents=True, exist_ok=True)
     (out / "maps").mkdir(parents=True, exist_ok=True)
