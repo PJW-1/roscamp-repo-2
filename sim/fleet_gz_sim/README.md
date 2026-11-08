@@ -126,6 +126,7 @@ pgrep -af "gz sim|ruby|component_container|pinky_fsm_node|fleet_manager_node"   
   | `sim_span_s`, `wall_span_s`, `real_time_factor` | 잰 시뮬 시간, 벽시계 시간, 그 비 |
 
 - 시나리오가 끝나면(`monitor:=true`) `summary.json`(판정, 출고 수), `safety.json`, `events.csv`, `zones.csv`, `robots.csv` 등. 중간에 Ctrl-C로 끝내면 이것들은 남지 않는다. 그때는 launch 로그의 `[fleet_manager]` 줄(배정, `DOCKED`, `ROBOT_ISOLATED` 등)을 본다.
+- `recovery_probe.csv`: 핑키 자가 복구(`RECOVERING`, 핑키 계약 4절, 제안)가 시작하고 끝나고 2 s 뒤(`event`가 `start`, `end`, `settled`)의 AMCL 위치와 Gazebo 실제 위치, 그 차(`err_m`, `yaw_err_deg`). `LOCALIZING` 보고는 비교할 위치가 없어 `note`가 `no_pose`다. `fleet_check`와 같은 프로세스에서 돌고, `fleet_check:=false`면 따로 돈다. 복구가 없었으면 머리줄만 남는다. 같은 `result_dir`로 다시 돌리면 뒤에 덧붙는다.
 - 돌아가는 동안 다른 터미널(같은 환경)에서:
 
   ```bash
