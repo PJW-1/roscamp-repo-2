@@ -64,6 +64,8 @@ def test_parking_at_the_goal_the_sample_was_taken_for_resolves_it():
     w.step("TO_PARK", ["A", "B"])
     w.step("PARKED", ["A", "B"])
     assert [s["sampled_s"] for s in w.sampler.resolved] == [1.0, 2.0]
+    assert [s["actual_s"] for s in w.sampler.resolved] == pytest.approx([2.0, 1.0])
+    assert [s["predicted_s"] for s in w.sampler.resolved] == [5.0, 5.0]
     assert w.sampler.dropped == 0
 
 
@@ -91,6 +93,7 @@ def test_a_goal_changed_mid_leg_keeps_only_the_new_goals_samples():
     w.step("TO_PARK", ["A", "C"])
     w.step("PARKED", ["A", "C"])
     assert [s["sampled_s"] for s in w.sampler.resolved] == [2.0, 3.0]
+    assert [s["actual_s"] for s in w.sampler.resolved] == pytest.approx([2.0, 1.0])
     assert w.sampler.dropped == 1
 
 

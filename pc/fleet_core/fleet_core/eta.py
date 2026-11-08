@@ -33,7 +33,6 @@ from fleet_core.traffic.mission import (
 
 STATION_OVERDUE_S = 1.0  # 시간이 지난 팔 작업은 곧 끝난다고 본다
 ARRIVED_M = 0.02  # 지점에서 이만큼 안이면 닿은 것으로 본다
-BESIDE_M = 0.05  # 레인에서 이만큼 옆이면 지점을 지났어도 거기까지 거리가 남은 것으로 본다
 
 
 @dataclass(frozen=True)
@@ -110,7 +109,7 @@ class EtaEstimator:
         if m.idx > 0:
             a, b = m.path[m.idx - 1], m.path[m.idx]
             s, side = self.site.lane_progress(a, b, m.x, m.y)
-            if s < self.site.lane(a, b).span - ARRIVED_M or side > BESIDE_M:
+            if s < self.site.lane(a, b).span - ARRIVED_M or side > ARRIVED_M:
                 return m.path[m.idx - 1:]  # not there yet, or beside the waypoint
         return m.path[m.idx:]
 

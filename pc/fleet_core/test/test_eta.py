@@ -259,6 +259,15 @@ def test_a_robot_past_its_last_waypoint_and_beside_it_still_has_the_sideways_dis
     assert core.eta("pinky1").travel_s == pytest.approx(math.hypot(0.03, 0.10) / 0.2)
 
 
+def test_a_robot_1_cm_past_and_4_cm_beside_its_last_waypoint_is_not_there_yet():
+    core, _ = make({"pinky1": "E1"})
+    m = run(core, "pinky1", TO_OUTBOUND, ["E1", "E2"], "OUTBOUND", hold=["E1", "E2"])
+    m.idx = 1
+    ex, ey = SITE.waypoint_pose("E2")
+    m.x, m.y = ex + 0.01, ey - 0.04
+    assert core.eta("pinky1").travel_s == pytest.approx(math.hypot(0.01, 0.04) / 0.2)
+
+
 def test_a_robot_just_past_its_last_waypoint_on_the_lane_has_arrived():
     core, _ = make({"pinky1": "E1"})
     m = run(core, "pinky1", TO_OUTBOUND, ["E1", "E2"], "OUTBOUND", hold=["E1", "E2"])
