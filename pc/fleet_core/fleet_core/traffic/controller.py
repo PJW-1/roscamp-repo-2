@@ -691,7 +691,7 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         안전 규칙 "현재 + 다음 구역만"은 여기 한곳에 있다. 빌린 구역은 경로 위에 없어도
         _release_passed_zones가 놓지 않고, _request_next_zone의 조기 반환도 세지 않는다.
         """
-        return {zone for zone in self._upcoming(m) if zone} | set(m.borrowed)
+        return {zone for zone in self._upcoming(m) if zone is not None} | set(m.borrowed)
 
     def _holds_ahead(self, m: _Mission, current: str, held) -> bool:
         """현재 구역과 빌린 구역 말고 쥔 구역이 있다. 있으면 다음 구역을 청하지 않는다."""

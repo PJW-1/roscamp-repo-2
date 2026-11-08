@@ -655,7 +655,8 @@ class SimWorld:
                 assert zone not in owners, f"{zone} has two holders: {owners[zone]} and {name}"
                 assert zones.holder(zone) == name
                 owners[zone] = name
-            assert len(held) <= 2, f"{name} holds {held}"
+            borrowed = self.core.traffic._missions[name].borrowed
+            assert len(set(held) - borrowed) <= 2, f"{name} holds {held}"
         inside = {}
         for r in self.virtual.values():
             if r.removed:
