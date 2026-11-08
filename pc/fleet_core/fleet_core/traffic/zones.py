@@ -23,6 +23,7 @@ class ZoneLocks:
         self._arrivals = 0
         self._arrived: dict[tuple[str, str], int] = {}  # (구역, 로봇) -> 요청 순번
         self._added: set[str] = set()  # 실행 중에 더한 구역(add_zone). 이것만 지울 수 있다
+        self._borrowing: dict[str, tuple[str, ...]] = {}  # 로봇 -> 빌리려는 구역(1-C)
 
     def add_zone(self, zone: str, conflicts=()) -> None:
         """실행 중에 구역을 더한다(버전 2 V2-0, 임시 구역). conflicts는 함께 쥐면 안 되는 구역."""
@@ -85,6 +86,33 @@ class ZoneLocks:
             if self._holder[zone] != robot:
                 self._grant(robot, zone)
         return True
+
+    def borrow_all(self, robot: str, zones) -> bool:
+        """옆 구역을 한꺼번에 빌린다(버전 2 1-C). 양보형이라 줄에 서지 않는다.
+
+        모든 구역(과 그 충돌 쌍)이 비었거나 이 로봇 것이고 기다리는 로봇도 없을 때만 모두 준다.
+        안 되면 아무것도 잡지 않고, 빌리려는 구역만 기록한다(borrowing, withdraw로 거둔다).
+        """
+        zones = tuple(dict.fromkeys(zones))
+        for zone in zones:
+            for unit in (zone, *self._conflicts[zone]):
+                if self._holder[unit] not in (None, robot) or any(
+                        waiter != robot for waiter in self._queue[unit]):
+                    self._borrowing[robot] = zones
+                    return False
+        self._borrowing.pop(robot, None)
+        for zone in zones:
+            if self._holder[zone] != robot:
+                self._grant(robot, zone)
+        return True
+
+    def borrowing(self, robot: str) -> tuple[str, ...]:
+        """빌리려고 기다리는 구역들(허가 전)."""
+        return self._borrowing.get(robot, ())
+
+    def withdraw(self, robot: str) -> None:
+        """빌리기 요청을 거둔다. 이미 빌린 구역은 해제 규칙으로 놓는다."""
+        self._borrowing.pop(robot, None)
 
     def requests_of(self, robot: str) -> tuple[str, ...]:
         """이 로봇이 줄 서 있는 구역들, 요청 순서대로."""

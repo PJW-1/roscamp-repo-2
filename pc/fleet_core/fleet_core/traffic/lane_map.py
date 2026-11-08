@@ -585,6 +585,19 @@ class LaneMap:
                 found.add(area.name)
         return found
 
+    def zones_touched(self, points, sample_m: float, release_m: float) -> set[str]:
+        """경로가 닿는 구역(버전 2 1-C): sample_m 간격 점에서 중심선 기준 release_m보다 가까운
+        구역. 제어기의 _off_the_floor(바닥 거리 + half_width >= release_m이면 놓음)와 같은 기준이다.
+        칸 모드의 칸 잠금 단위는 아직 세지 않는다(자유 구역 이름으로 나온다)."""
+        points = [tuple(float(v) for v in p) for p in points]
+        samples = points[:1]
+        for (ax, ay), (bx, by) in zip(points, points[1:], strict=False):
+            steps = max(1, math.ceil(math.hypot(bx - ax, by - ay) / sample_m))
+            samples += [(ax + (bx - ax) * k / steps, ay + (by - ay) * k / steps)
+                        for k in range(1, steps + 1)]
+        return {zone for zone in self.zones for x, y in samples
+                if self.distance_to_zone(x, y, zone) + self.half_width < release_m}
+
     # ---- conflict pairs -----------------------------------------------------------------------
 
     def conflict_pairs(self, clearance_m: float, release_m: float) -> set[frozenset]:
