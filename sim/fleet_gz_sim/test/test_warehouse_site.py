@@ -43,15 +43,42 @@ def test_boxes_are_valid_inside_and_apart():
     names = [b["name"] for b in SITE["boxes"]]
     assert len(names) == len(set(names))
     for raw, box in zip(SITE["boxes"], BOXES, strict=True):
-        assert raw["kind"] in ("rack", "table", "pillar"), box.name
+        assert raw["kind"] in ("rack", "table", "pillar", "arm"), box.name
         assert raw["height_m"] > 0, box.name
         assert box.x0 < box.x1 and box.y0 < box.y1, box.name
         assert x0 - EPS <= box.x0 and box.x1 <= x1 + EPS, box.name
         assert y0 - EPS <= box.y0 and box.y1 <= y1 + EPS, box.name
+    kinds = {raw["name"]: raw["kind"] for raw in SITE["boxes"]}
     for one, other in itertools.combinations(BOXES, 2):
         overlap = (min(one.x1, other.x1) - max(one.x0, other.x0) > EPS
                    and min(one.y1, other.y1) - max(one.y0, other.y0) > EPS)
-        assert not overlap, f"{one.name} overlaps {other.name}"
+        on_table = {kinds[one.name], kinds[other.name]} == {"arm", "table"}
+        assert not overlap or on_table, f"{one.name} overlaps {other.name}"
+
+
+def _inside(inner, outer) -> bool:
+    return (outer.x0 - EPS <= inner.x0 and inner.x1 <= outer.x1 + EPS
+            and outer.y0 - EPS <= inner.y0 and inner.y1 <= outer.y1 + EPS)
+
+
+def test_each_arm_stands_on_its_table_by_its_dock():
+    """arm1, arm2 at WORK and arm3 at OUTBOUND, each on top of its table (base taller than it)."""
+    raw = {b["name"]: b for b in SITE["boxes"]}
+    box = {b.name: b for b in BOXES}
+    arms = sorted(n for n, b in raw.items() if b["kind"] == "arm")
+    assert arms == ["arm1", "arm2", "arm3"]
+    for arm in arms:
+        table = f"table_{arm}"
+        assert _inside(box[arm], box[table]), f"{arm} is not on {table}"
+        assert raw[arm]["height_m"] > raw[table]["height_m"], arm
+        station = "OUTBOUND" if arm == "arm3" else "WORK"
+        assert arm in LANES.stations[station].arms
+        x, y = LANES.waypoint_pose(LANES.stations[station].dock)
+        a = box[arm]
+        assert math.hypot(max(a.x0 - x, 0, x - a.x1), max(a.y0 - y, 0, y - a.y1)) < 0.5, arm
+    for other in ("rack", "table"):  # 바닥이 창고처럼 보이게: 출고 쪽 포장대, 작업 쪽 대기 랙
+        assert any(n.startswith(f"{'packing' if other == 'table' else 'staging'}_")
+                   and b["kind"] == other for n, b in raw.items()), other
 
 
 def test_tables_stand_by_both_docks():
