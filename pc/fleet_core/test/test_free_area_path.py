@@ -111,3 +111,40 @@ def test_lane_error_inside_the_area_is_measured_from_the_path():
     d.pose["r1"] = (1.76, 0.68)  # 받은 경로에서 0.21 m
     out = d.tick(5)
     assert "LANE_ERROR" in codes(out)
+
+
+def test_an_answer_cutting_across_outside_a_concave_floor_is_refused():
+    """점만이 아니라 점 사이 선도 바닥 안이어야 한다(오목한 바닥)."""
+    from types import SimpleNamespace
+
+    from fleet_core.common.params import load_params
+    from fleet_core.traffic.free_area import TrafficFreeArea
+    from fleet_core.traffic.lane_map import LaneMap
+    from test_free_areas import u_map
+
+    core = SimpleNamespace(site=LaneMap(u_map()), params=load_params())  # 이 지도엔 스테이션이 없다
+    core._free_path_problem = TrafficFreeArea._free_path_problem.__get__(core)
+    good = [(1.0, 0.7), (1.2, 0.8), (1.8, 0.8), (2.0, 0.7)]
+    bad = [(1.0, 0.7), (1.2, 1.2), (1.8, 1.2), (2.0, 0.7)]
+    assert core._free_path_problem(("G1", "G2"), good) == ""
+    assert "floor" in core._free_path_problem(("G1", "G2"), bad)
+
+
+def test_point_mode_asks_for_no_path_and_measures_from_the_lane():
+    """point 모드는 MoveCmd.path를 보내지 않으므로 경로를 청하지도, 그것으로 재지도 않는다."""
+    import dataclasses
+
+    d = Drive({"r1": "F1"})
+    d.core.params = dataclasses.replace(d.core.params, lane_goal_mode="point")
+    out = d.tick(5)
+    assert kinds(out, "PlanCmd") == []
+    assert d.m().free_paths == {}
+
+
+def test_lane_choice_uses_the_path_shape_inside_the_area():
+    """이탈 기준 레인과 막힘 레인 고르기(_gap_to)도 받은 경로까지의 거리로 한다."""
+    d, out = entered()
+    d.core.on_plan_result("r1", kinds(out, "PlanCmd")[0].plan_id, CURVE)
+    m = d.m()
+    m.x, m.y = 1.55, 0.675  # 휜 길 위, 직선(x=1.35)에서 0.2 m
+    assert d.core._gap_to(m, ("G3", "G4")) < 1e-9

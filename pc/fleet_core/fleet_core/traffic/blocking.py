@@ -172,6 +172,9 @@ class TrafficBlocking:
         return min(lanes, key=lambda key: self._gap_to(m, key), default=None)
 
     def _gap_to(self, m: _Mission, key: tuple) -> float:
+        planned = self._free_gap(m, key)  # 자유 구역에서 받은 경로(버전 2 F-1)
+        if planned is not None:
+            return planned
         lane = self.site.lane(*key)
         return _point_segment(m.x, m.y, lane.ax, lane.ay, lane.bx, lane.by)
 

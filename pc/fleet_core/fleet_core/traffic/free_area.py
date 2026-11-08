@@ -4,7 +4,8 @@
 로봇이 자유 구역과 출구 다음 구역을 쥐고 가상 레인 하나를 목표에 이으려 하면:
   - 그 레인의 경로가 아직 없으면 로봇 planner에 입구에서 출구까지 계산을 청하고(PlanCmd,
     로봇의 compute_path_to_pose) 목표는 입구까지만 둔다. 기다리는 동안 다시 청하지 않는다.
-  - 답(on_plan_result)이 바닥 안(distance_to_zone == 0), 입구와 출구에서 arrival_tolerance_m
+  - 답(on_plan_result)이 끝을 출입구로 맞춘 뒤 점 사이 선까지 다각형 바닥 안
+    (lane_map.free_path_outside), 입구와 출구에서 arrival_tolerance_m
     안, 직선 길이의 free_path_max_ratio배 이하이면 그 점들을 쓴다(FREE_PATH). 끝 두 점은 출입구
     자리로 맞춘다.
   - 아니면, 또는 free_plan_wait_s 안에 답이 없으면 출입구를 잇는 직선을 쓴다(FREE_PATH_REJECTED).
@@ -63,7 +64,8 @@ class TrafficFreeArea:
         tolerance = self.params.arrival_tolerance_m
         if math.dist(points[0], a) > tolerance or math.dist(points[-1], b) > tolerance:
             return "not from gate to gate"
-        if any(self.site.distance_to_zone(x, y, area) > 0.0 for x, y in points):
+        inner = [(float(x), float(y)) for x, y in points[1:-1]]
+        if self.site.free_path_outside(area, [a, *inner, b]):  # 끝을 출입구로 맞춘 뒤의 선
             return f"leaves the {area} floor"
         limit = self.params.free_path_max_ratio * math.dist(a, b)
         if _length(points) > limit:
@@ -77,8 +79,19 @@ class TrafficFreeArea:
                     f"{key[0]} to {key[1]}: {why}, using the straight line", m.name)
 
     def _free_crossing_ready(self, m: _Mission, index: int) -> bool:
-        """index에서 나가는 레인을 목표에 이어도 되나. 가상 레인이면 경로가 있어야 한다."""
+        """index에서 나가는 레인을 목표에 이어도 되나.
+
+        자유 구역 안으로 이으려면 출구 다음 구역도 쥐어야 한다(경로가 바뀌어 출구가 달라진
+        경우). 가상 레인이면 경로가 있어야 한다.
+        """
         key = (m.path[index], m.path[index + 1])
+        area = self._zone(m.path[index + 1])
+        if area in self.site.free_areas:
+            after = self._zone_after(m, area)
+            if after is not None and after not in self.zones.held_by(m.name):
+                return False
+        if not self._follows_path:
+            return True  # point 모드는 MoveCmd.path를 보내지 않는다. 로봇이 알아서 지난다
         if key not in self.site.free_lanes or key in m.free_paths:
             return True
         now = self._clock()
@@ -110,7 +123,10 @@ class TrafficFreeArea:
         return list(points[best + 1:])
 
     def _free_gap(self, m: _Mission, lane: tuple) -> float | None:
-        """받은 경로가 있는 가상 레인이면 그 경로에서의 이탈, 아니면 None."""
+        """받은 경로가 있는 가상 레인이면 그 경로에서의 이탈, 아니면 None.
+
+        blocking.py의 _gap_to도 이것을 먼저 본다. 기준 레인 고르기도 받은 경로 모양으로 한다.
+        """
         if lane not in m.free_paths:
             return None
         return polyline_gap(m.x, m.y, m.free_paths[lane])

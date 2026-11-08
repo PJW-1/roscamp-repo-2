@@ -439,7 +439,9 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         if m is None:
             return {}
         wait_zone = self.zones.waiting_for(robot) or ""
-        in_the_way = self.zones.blockers(robot, wait_zone) if wait_zone else ()
+        in_the_way = set()  # 한꺼번에 청한 구역들(F-1)이면 그 모두의 앞을 막는 로봇
+        for zone in self.zones.requests_of(robot):
+            in_the_way |= self.zones.blockers(robot, zone)
         fault, reason = self._shown_fault(m)
         return {
             "fsm_state": m.robot_state,
@@ -966,6 +968,16 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         if following is None:
             return
         held = self.zones.held_by(m.name)
+        if following in self.site.free_areas and following in held:
+            # 자유 구역을 쥔 뒤 경로가 바뀌어 출구가 달라졌으면 새 출구 다음 구역을 청한다(F-1).
+            # 그것을 쥘 때까지 _free_crossing_ready가 자유 구역으로 목표를 잇지 않는다
+            after = self._zone_after(m, following)
+            if after is not None and after not in held:
+                if self.zones.request(m.name, after):
+                    m.wait_zone = None
+                else:
+                    self._note_waiting(m, after)
+                return
         if following in held or self._holds_ahead(m, current, held):
             m.wait_zone = None
             return

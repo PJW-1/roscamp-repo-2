@@ -7,6 +7,7 @@
 """
 from pathlib import Path
 
+from fleet_core.common.commands import PlanCmd
 from fleet_core.common.params import load_params
 from fleet_core.traffic.controller import TrafficController
 from fleet_core.traffic.deadlock import wait_graph
@@ -107,3 +108,33 @@ def test_a_new_route_drops_every_request_it_no_longer_needs():
     assert set(d.core.zones.requests_of("r1")) == {"PLAZA", "P-1"}
     d.core._start_leg(m, m.phase, m.dest, "F2")
     assert d.core.zones.requests_of("r1") == ()
+
+
+def test_a_new_exit_must_be_held_before_the_robot_goes_into_the_area():
+    """광장을 쥔 뒤 경로가 바뀌어 출구가 달라지면 새 출구 다음 구역을 쥘 때까지 들어가지 않는다."""
+    d = Drive({"r1": "F1"})
+    d.tick(3)
+    assert set(d.core.zones.held_by("r1")) == {"F1", "PLAZA", "P-1"}
+    exit_zone = d.core._zone("QW")
+    assert d.core.zones.request("ghost", exit_zone)
+    m = d.m()
+    d.core._start_leg(m, m.phase, m.dest, "QW")
+    assert m.path[:4] == ["F1", "G3", "T1", "QW"]
+    out = d.tick(5)
+    assert exit_zone in d.core.zones.requests_of("r1"), "새 출구 다음 구역을 청한다"
+    # 경로가 바뀌기 전에 이미 낸 입구(G3)까지의 목표는 그대로 두고, 광장을 건너는 레인은 잇지 않는다
+    assert m.goal is None or m.path[m.goal.target_idx] in ("F1", "G3"), "광장을 건너지 않는다"
+    assert not any(isinstance(c, PlanCmd) and c.goal_x == 1.0 for c in out), \
+        "새 출구 전에는 경로도 청하지 않는다"
+    d.core.zones.release("ghost", exit_zone)
+    out = d.tick(3)
+    assert exit_zone in d.core.zones.held_by("r1")
+    assert any(isinstance(c, PlanCmd) and (c.goal_x, c.goal_y) == (1.0, 0.6) for c in out), \
+        "새 출구를 쥐면 G3-T1 경로를 청한다"
+
+
+def test_the_status_shows_every_robot_in_the_way_of_an_all_or_nothing_request():
+    d = Drive({"r1": "F1"})
+    assert d.core.zones.request("ghost", "P-1")
+    d.tick(3)
+    assert d.core.status_view("r1")["wait_robots"] == ("ghost",)

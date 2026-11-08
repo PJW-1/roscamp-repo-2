@@ -149,3 +149,29 @@ def test_a_temporary_zone_over_the_area_floor_conflicts_with_the_area():
     s = site()
     s.add_temp_zone("TMP", [(1.4, 0.6), (1.6, 0.6)])  # 바닥 안, 가상 레인 G1-G2에서 0.4 m
     assert "PLAZA" in s.temp_zone_conflicts("TMP", clearance_m=0.16)
+
+
+# 위가 파인 U자 바닥(1.4~1.6 x 0.9~1.5가 바닥 밖). 출입구는 파인 곳 아래 높이(y=0.7)에 둔다
+U_FLOOR = [[1.0, 0.5], [2.0, 0.5], [2.0, 1.5], [1.6, 1.5], [1.6, 0.9], [1.4, 0.9], [1.4, 1.5],
+           [1.0, 1.5]]
+
+
+def u_map(gate_y=0.7):
+    data = copy.deepcopy(BASE)
+    for w in data["waypoints"]:
+        if w["id"] in ("W0", "G1", "G2", "E0"):
+            w["y"] = gate_y
+    data["free_areas"]["PLAZA"]["polygon"] = U_FLOOR
+    return data
+
+
+def test_a_free_path_crossing_a_notch_is_outside_the_floor():
+    s = site(u_map())
+    assert not s.free_path_outside("PLAZA", [(1.0, 0.7), (1.2, 0.8), (1.8, 0.8), (2.0, 0.7)])
+    assert s.free_path_outside("PLAZA", [(1.0, 0.7), (1.2, 1.2), (1.8, 1.2), (2.0, 0.7)]), \
+        "점은 다 바닥 안이어도 그 사이 선이 파인 곳을 지난다"
+
+
+def test_a_gate_chord_leaving_the_floor_is_refused():
+    with pytest.raises(LaneMapError, match="straight line"):
+        site(u_map(gate_y=1.0))

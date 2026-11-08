@@ -212,6 +212,10 @@ class LaneMap:
                     span = math.hypot(bx - ax, by - ay)
                     if span <= 0.0:
                         raise LaneMapError(f"free area {area.name}: gates {a} and {b} coincide")
+                    if self._outside(area.polygon, [(ax, ay), (bx, by)]):
+                        # 경로 계산 답이 없을 때 이 직선으로 지난다(F-1). 오목한 바닥이면 막는다
+                        raise LaneMapError(f"free area {area.name}: the straight line from {a} "
+                                           f"to {b} leaves the floor")
                     self.lanes[(a, b)] = Lane(a, b, ax, ay, bx, by, (bx - ax) / span,
                                               (by - ay) / span, span, span)
                     added.append((a, b))
@@ -229,6 +233,24 @@ class LaneMap:
         if key not in self.free_lanes:
             return None
         return self.zone_of[key[1]]
+
+    def free_path_outside(self, area: str, points) -> bool:
+        """출입구에서 출입구까지의 꺾은선이 다각형 바닥을 벗어나나(점 사이 선도 본다)."""
+        return self._outside(self.free_areas[area].polygon, points)
+
+    def _outside(self, polygon, points, step_m: float = 0.02) -> bool:
+        """꺾은선을 step_m 간격으로 보아 바닥 밖이 있나. 양 끝 출입구는 가장자리에서
+        half_width까지 떨어져 있을 수 있으므로 끝에서 2 x half_width 안은 half_width까지 봐준다.
+        """
+        ends = (points[0], points[-1])
+        for a, b in zip(points, points[1:], strict=False):
+            n = max(1, math.ceil(math.dist(a, b) / step_m))
+            for k in range(n + 1):
+                x, y = a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n
+                near_gate = min(math.dist((x, y), e) for e in ends) <= 2 * self.half_width
+                if self._polygon_gap(polygon, x, y) > (self.half_width if near_gate else 1e-9):
+                    return True
+        return False
 
     def inside_free_floor(self, area: str, x: float, y: float) -> bool:
         return _inside_polygon(x, y, self.free_areas[area].polygon)
