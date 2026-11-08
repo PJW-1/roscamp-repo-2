@@ -76,7 +76,7 @@
 ## 시험 결과
 
 - fleet_core 전체(순수 pytest): 1219 passed, 174 s (a9f30ff 시점). 2d44515의 고침 뒤에는 `test_eta*.py` 31 passed만 다시 돌렸고 전체는 아래 패키지 실행으로 갈음했다.
-- 세 패키지(fleet_core, fake_robots, fleet_manager)를 `rec_test_pkgs.sh`로 도메인 48에서 빌드·시험한 결과는 아래 줄에 적었다.
+- 2d44515 시점, `rec_test_pkgs.sh` 도메인 48: fleet_core 1220 passed(175 s), fake_robots 451 passed(280 s), fleet_manager 1 failed, 103 passed(757 s). 실패는 `test_scenario_integration.py::test_scenario_finishes_and_matches_the_contract[reinstate]`로 알려진 시간 경합(`reinstate`)이다. 이 항목만 다시 돌렸지만(`PYTEST_K=reinstate`) 작업 시간 제한까지 끝나지 않아(잠금 대기로 보임) 결과를 못 봤다. 따라서 "알려진 flake"는 추정이고 단독 재실행 통과는 확인하지 못했다.
 - ruff: 내 파일 통과. `sim/fake_robots/fake_robots/planner.py:5` E501은 원래 있던 것(건드리지 않음).
 
 ## 하지 않은 것
