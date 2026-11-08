@@ -242,6 +242,14 @@ def test_a_robot_part_way_along_its_last_lane_still_has_that_distance_to_go():
     assert core.eta("pinky1").travel_s == pytest.approx(0.10 / 0.2)
 
 
+def test_a_robot_beside_its_last_waypoint_still_has_the_sideways_distance_to_go():
+    core, _ = make({"pinky1": "E1"})
+    m = run(core, "pinky1", TO_OUTBOUND, ["E1", "E2"], "OUTBOUND", hold=["E1", "E2"])
+    m.idx = 1
+    m.x, m.y = SITE.waypoint_pose("E2")[0], SITE.waypoint_pose("E2")[1] - 0.10
+    assert core.eta("pinky1").travel_s == pytest.approx(0.10 / 0.2)
+
+
 def test_a_robot_queued_behind_another_is_not_stuck():
     core, _ = make({"pinky1": "E0", "pinky2": "E1"})
     run(core, "pinky1", TO_OUTBOUND, ["E0", "E1", "E2"], "OUTBOUND", hold=["E0"])

@@ -109,8 +109,10 @@ class EtaEstimator:
         if m.idx > 0:
             a, b = m.path[m.idx - 1], m.path[m.idx]
             s, _ = self.site.lane_progress(a, b, m.x, m.y)
-            if s < self.site.lane(a, b).span - ARRIVED_M:
-                return m.path[m.idx - 1:]
+            span = self.site.lane(a, b).span
+            ahead = math.dist((m.x, m.y), self.site.waypoint_pose(b))
+            if s < span - ARRIVED_M or (s < span + ARRIVED_M and ahead > ARRIVED_M):
+                return m.path[m.idx - 1:]  # not there yet, or beside the waypoint
         return m.path[m.idx:]
 
     def _exit_s(self) -> float:
@@ -146,7 +148,8 @@ class EtaEstimator:
             return free
         # waiters ahead of robot in the queue of zone or of a conflicting zone (zones.blockers)
         waiters = zones.blockers(robot, zone) - set(holders.values())
-        free += sum(self._hold_s(other, zones.waiting_for(other) or zone)
+        free += sum(self._hold_s(other, zone if zone in zones.requests_of(other)
+                                 else zones.waiting_for(other) or zone)
                     for other in sorted(waiters))
         station = self.site.stations.get(m.dest)
         if station is not None and self.site.zone_of[station.dock] == zone:

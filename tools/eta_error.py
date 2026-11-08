@@ -119,7 +119,7 @@ class Sampler:
             key = (phase, mission.dest, mission.path[-1] if mission.path else None)
             before = self.leg.get(name)
             if before is not None and key != before:
-                self._close(name, before, phase)
+                self._close(name, before, phase, key[2])
             if phase in LEGS:
                 self.leg[name] = key
                 if sample_now and not world.virtual[name].removed:
@@ -130,9 +130,11 @@ class Sampler:
             else:
                 self.leg.pop(name, None)
 
-    def _close(self, name, before, now_phase) -> None:
+    def _close(self, name, before, now_phase, now_end) -> None:
         samples = self.pending.pop(name, [])
-        if ARRIVED.get(before[0]) == now_phase:
+        # arrived at the end the samples were taken for: a parking path trimmed in the same step
+        # that the robot arrives is a different target
+        if ARRIVED.get(before[0]) == now_phase and now_end == before[2]:
             for t, predicted, travel, wait in samples:
                 self.resolved.append({"leg": before[0], "robot": name, "sampled_s": t,
                                       "predicted_s": predicted, "travel_s": travel,
