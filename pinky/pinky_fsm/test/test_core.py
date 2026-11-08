@@ -971,15 +971,17 @@ def test_a_new_retreat_still_waits_for_a_backup_whose_waiting_retreat_a_move_rep
 
 def test_a_backup_that_never_answers_stops_holding_retreats_after_its_time_allowance():
     """nav2 BackUp은 time_allowance가 지나면 스스로 선다. 그 뒤(+ 여유)에는 기다리지 않는다.
-    결과를 잃어도 다음 Retreat가 모두 TIMEOUT으로 끝나지 않게 하는 지킴 시험이다."""
+    결과를 잃어도 다음 Retreat가 모두 TIMEOUT으로 끝나지 않는다."""
     fsm = ready()
     (b1,) = backups(fsm.retreat("r1", 1.0, 0.3, 0.1))
     fsm.retreat("r2", 1.5, 0.2, 0.1)
     fsm.cancel("r2", 1.6)
-    late = 1.0 + b1.time_allowance_s + FsmParams().backup_result_grace_s + 0.1
-    fsm.heartbeat(late)
-    (b3,) = backups(fsm.retreat("r3", late, 0.2, 0.1))
-    assert b3.seq != b1.seq
+    expiry = 1.0 + b1.time_allowance_s + FsmParams().backup_result_grace_s
+    fsm.heartbeat(expiry - 0.5)
+    assert not backups(fsm.retreat("r3", expiry - 0.5, 0.2, 0.1)), "b1이 아직 움직일 수 있다"
+    fsm.heartbeat(expiry + 0.1)
+    (b3,) = backups(fsm.tick(expiry + 0.1, (*P3, NORTH), STILL, no_obstacle))
+    assert b3.seq != b1.seq and fsm.is_running("r3")
 
 
 def test_a_retreat_from_standing_still_backs_up_at_once():
