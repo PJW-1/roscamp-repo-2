@@ -106,6 +106,7 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         self._deadlock_acted = False
         self._retreating: tuple[str, list[str], float] | None = None  # 로봇, 구역, 해제 시각
         self._retreat_rechecks = 0  # 성공한 물러나기 뒤 확인을 더 기다릴 횟수(1-A)
+        self._retreat_cancel: int | None = None  # 기한이 지나 취소를 보낸 Retreat goal(1-A)
         self._deadlock_cycle: tuple[str, ...] = ()  # the cycle being handled, in wait order
         # robots on any wait cycle at the last check; the idle watch (H2) skips them
         self._deadlock_members: frozenset[str] = frozenset()
@@ -303,6 +304,8 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         m = self._missions.get(robot)
         if m:
             self._cancel_finished(m, goal_id)
+            if m.goal is not None and m.goal.id == goal_id and m.goal.kind == RETREAT:
+                self._retreat_ended(m, False, "LOST")  # 기한에 취소한 물러나기(1-A)
 
     def on_dock_result(self, robot, goal_id, success, error_x_cm=0.0, error_y_cm=0.0,
                        error_yaw_deg=0.0) -> None:

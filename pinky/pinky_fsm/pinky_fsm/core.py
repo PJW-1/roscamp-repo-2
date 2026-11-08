@@ -168,6 +168,7 @@ class PinkyFsm:
         # A FollowPath may still be out there: one was sent since the last CancelNav. The latest
         # result does not clear it, since a replaced one may be accepted late.
         self._nav_running = False
+        self._nav_live: set[int] = set()  # 결과가 아직 안 온 FollowPath(seq). 물러나기 전에 비운다
         self._alive = -math.inf  # 마지막 heartbeat나 목표 수락
         self._stopped_since: float | None = None
         self._blocked = False
@@ -256,13 +257,13 @@ class PinkyFsm:
                 speed_mps: float) -> list:
         """뒤로 곧게 distance_m. 달리던 이동과 자가 복구 후진을 먼저 멈춘다."""
         self._alive = max(self._alive, now)
-        was_driving = self._nav_running
+        was_driving = self._nav_running or bool(self._nav_live)
         cmds = self._end_active(CANCELED, stop=True)
         if not (distance_m > 0.0 and speed_mps > 0.0):
             return cmds + [Finish(goal_id, False, FAILED)]
         self._stopped_since = None
         if was_driving:
-            # FollowPath 취소가 바퀴를 세울 때까지 기다린다(둘 다 cmd_vel, 1-A Codex 1)
+            # FollowPath가 끝나고(결과) 바퀴가 설 때까지 기다린다(둘 다 cmd_vel, 1-A Codex 1)
             self._active = _Retreat(goal_id, 0, now, self.p.retreat_stop_wait_s,
                                     float(distance_m), float(speed_mps))
             return cmds
@@ -284,6 +285,7 @@ class PinkyFsm:
     def nav_result(self, seq: int, outcome: str, now: float, pose: Sequence[float] | None,
                    obstacle: Obstacle) -> list:
         """FollowPath 결과. outcome은 succeeded, aborted, canceled, rejected 중 하나."""
+        self._nav_live.discard(seq)
         g = self._active
         if not isinstance(g, _Move) or seq != g.seq:
             return []  # 교체된 옛 목표의 결과(Nav2는 새 목표를 받으면 옛 것을 ABORTED로 끝낸다)
@@ -350,7 +352,8 @@ class PinkyFsm:
             g.s = self._track(g, pose)
         if isinstance(g, _Retreat) and g.seq == 0:
             lin, ang = speed
-            if abs(lin) < self.p.stopped_speed_mps and abs(ang) < self.p.stopped_turn_rps:
+            stopped = abs(lin) < self.p.stopped_speed_mps and abs(ang) < self.p.stopped_turn_rps
+            if stopped and not self._nav_live:
                 cmds += self._start_retreat(g, now)
             elif now - g.since >= g.allowance_s:
                 cmds += self._end_active(TIMEOUT, stop=True)  # 서지 않는다. 물러나지 않는다
@@ -517,6 +520,7 @@ class PinkyFsm:
         g.nav_running = True
         g.last_send = now
         self._nav_running = True
+        self._nav_live.add(g.seq)
         poses = poses_along(g.route.rest(g.s), g.target[2], self.p.path_step_m)
         return [SendPath(g.seq, poses)]
 

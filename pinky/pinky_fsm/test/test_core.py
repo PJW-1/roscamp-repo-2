@@ -846,18 +846,37 @@ def test_distance_remaining_follows_the_path():
 
 def test_a_retreat_stops_the_move_first_then_backs_up_straight():
     fsm = ready()
-    move(fsm, "g1", 0.0)
+    (send,) = [c for c in move(fsm, "g1", 0.0) if isinstance(c, SendPath)]
     cmds = fsm.retreat("r1", 1.0, 0.3, 0.1)
     assert kinds(cmds) == ["Finish", "CancelNav"], "이동을 먼저 멈춘다(둘 다 cmd_vel)"
     assert cmds[0] == Finish("g1", False, CANCELED)
     assert fsm.state() == MOVING and fsm.is_running("r1")
     fsm.heartbeat(1.2)
     assert not backups(fsm.tick(1.2, (*P3, NORTH), DRIVING, no_obstacle)), "아직 굴러간다"
+    fsm.heartbeat(1.3)
+    cmds = fsm.tick(1.3, (*P3, NORTH), STILL, no_obstacle)
+    assert not backups(cmds), "FollowPath가 아직 안 끝났다(1-A 재검수 1)"
+    fsm.nav_result(send.seq, "canceled", 1.35, (*P3, NORTH), no_obstacle)
     fsm.heartbeat(1.4)
     (b,) = backups(fsm.tick(1.4, (*P3, NORTH), STILL, no_obstacle))  # 1-A Codex 1
     assert (b.distance_m, b.speed_mps) == (0.3, 0.1)
     assert b.time_allowance_s >= 0.3 / 0.1
     assert fsm.state() == MOVING and fsm.is_running("r1")
+
+
+def test_a_second_retreat_while_waiting_still_waits_for_the_follow_path_to_end():
+    """1-A 재검수 2: 첫 Retreat가 CancelNav를 냈어도 두 번째가 기다림을 건너뛰지 않는다."""
+    fsm = ready()
+    (send,) = [c for c in move(fsm, "g1", 0.0) if isinstance(c, SendPath)]
+    fsm.retreat("r1", 1.0, 0.3, 0.1)
+    cmds = fsm.retreat("r2", 1.1, 0.3, 0.1)
+    assert Finish("r1", False, CANCELED) in cmds and not backups(cmds)
+    fsm.heartbeat(1.2)
+    assert not backups(fsm.tick(1.2, (*P3, NORTH), STILL, no_obstacle))
+    fsm.nav_result(send.seq, "canceled", 1.25, (*P3, NORTH), no_obstacle)
+    fsm.heartbeat(1.3)
+    (b,) = backups(fsm.tick(1.3, (*P3, NORTH), STILL, no_obstacle))
+    assert fsm.is_running("r2")
 
 
 def test_a_retreat_from_standing_still_backs_up_at_once():

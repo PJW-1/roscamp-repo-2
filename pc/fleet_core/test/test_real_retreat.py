@@ -165,22 +165,56 @@ def test_the_retreat_cancels_a_running_move_first():
 # ---- 1-A Codex 검수 ---------------------------------------------------------------------
 
 
-def test_a_retreat_with_no_result_by_its_deadline_is_canceled_and_failed():
-    """결과가 끝내 오지 않으면 goal을 취소하고 실패로 본다(구역 확인은 그 뒤에)."""
+def test_a_retreat_with_no_result_by_its_deadline_is_canceled_and_waited_for():
+    """결과가 기한까지 안 오면 취소를 한 번 보내고, 끝났다는 결과(또는 잃음)가 올 때까지 goal을
+    열어 둔다. 그동안 뒤 구역도 앞 구역도 놓지 않는다(1-A 재검수 3)."""
     d, m = at_the_gate()
     (cmd,) = [c for c in retreat(d, m) if isinstance(c, RetreatCmd)]
     d.core._out.clear()
-    d.now[0] = d.core._retreating[2] + 0.1
-    report(d, "r1", *d.site.waypoint_pose("G3"), SOUTH)
-    d.core._finish_retreat(["r1", "r2"])
-    assert CancelCmd("r1", cmd.goal_id) in d.core._out
+    for _ in range(3):
+        d.now[0] = d.core._retreating[2] + 0.1
+        report(d, "r1", *d.site.waypoint_pose("G3"), SOUTH)
+        d.core._finish_retreat(["r1", "r2"])
+    assert [c for c in d.core._out if isinstance(c, CancelCmd)] == [CancelCmd("r1", cmd.goal_id)]
+    assert m.goal is not None and m.goal.kind == RETREAT
+    assert set(d.core.zones.held_by("r1")) == {"PLAZA", "F1"}
+    d.core.on_retreat_result("r1", cmd.goal_id, False, "CANCELED")
     assert "RETREAT_FAILED" in codes(d.core._out)
     assert m.goal is None and m.idx == 1
-    assert "PLAZA" in d.core.zones.held_by("r1"), "결과 없이는 아무것도 놓지 않는다"
+
+
+def test_a_canceled_retreat_whose_result_is_lost_ends_failed():
+    d, m = at_the_gate()
+    (cmd,) = [c for c in retreat(d, m) if isinstance(c, RetreatCmd)]
+    d.now[0] = d.core._retreating[2] + 0.1
+    d.core._finish_retreat(["r1", "r2"])
+    d.core._out.clear()
+    d.core.on_goal_lost("r1", cmd.goal_id)
+    assert "RETREAT_FAILED" in codes(d.core._out)
+    assert m.goal is None
+
+
+def test_the_deadline_still_holds_when_the_cycle_goes_away():
+    """1-A 재검수 4: 물러나는 중에 순환이 사라져도(다른 로봇이 요청을 거둠) 기한에 취소한다."""
+    d, m = at_the_gate()
+    (cmd,) = [c for c in retreat(d, m) if isinstance(c, RetreatCmd)]
+    d.core.zones.cancel_all_requests("r2")
+    d.core._out.clear()
+    d.now[0] = d.core._retreating[2] + 0.1
+    d.core._check_deadlock(d.now[0])
+    assert CancelCmd("r1", cmd.goal_id) in d.core._out
+
+
+def test_the_fleet_deadline_leaves_room_for_the_robot_to_stop_first():
+    """핑키는 달리던 이동이 끝나고 설 때까지(최대 3 s) BackUp을 미룬다."""
+    d, m = at_the_gate()
+    (cmd,) = [c for c in retreat(d, m) if isinstance(c, RetreatCmd)]
+    backup_allowance = cmd.distance_m / cmd.speed_mps * 2.0 + 2.0
+    assert d.core._retreating[2] - d.now[0] >= backup_allowance + 3.0
 
 
 def test_a_failed_retreat_off_the_floor_but_not_past_the_exit_still_ends():
-    """실패한 물러나기 뒤 바닥 밖(뒤쪽)이지만 출구 레인으로는 안 벗어난 로봇: 끝없이 기다리지 않는다."""
+    """실패한 물러나기 뒤 바닥 밖(뒤쪽)이나 출구 레인으로는 안 벗어난 로봇: 끝없이 안 기다린다."""
     d, m = at_the_gate()
     (cmd,) = [c for c in retreat(d, m) if isinstance(c, RetreatCmd)]
     d.core.on_retreat_result("r1", cmd.goal_id, False, "OBSTACLE_BEHIND")
