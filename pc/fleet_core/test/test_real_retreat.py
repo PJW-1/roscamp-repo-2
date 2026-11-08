@@ -247,3 +247,61 @@ def test_no_retreat_that_would_leave_the_lane_floor():
     out = retreat(d, m)
     assert not [c for c in out if isinstance(c, RetreatCmd)]
     assert "F1" not in d.core.zones.held_by("r1")
+
+
+# ---- 1-A 재검수 2 -------------------------------------------------------------------------
+
+
+def retreat_by_the_cycle(d):
+    """교착 감시가 순환을 보고 유예 뒤 r1을 물러나게 한다."""
+    d.core._check_deadlock(d.now[0])
+    d.now[0] += d.params.deadlock_grace_s
+    d.core._check_deadlock(d.now[0])
+    (cmd,) = [c for c in d.core._out if isinstance(c, RetreatCmd)]
+    return cmd
+
+
+def test_a_new_cycle_waits_until_the_open_retreat_ends():
+    """1-A 재검수 2의 1: 물러나는 중에 순환이 바뀌어도 새 순환의 복구를 시작하지 않는다."""
+    d, m = at_the_gate()
+    cmd = retreat_by_the_cycle(d)
+    d.core.zones.cancel_request("r2", "PLAZA")
+    d.core._check_deadlock(d.now[0])  # 순환이 사라졌다
+    d.core.zones.request("r2", "PLAZA")
+    d.core._out.clear()
+    for _ in range(3):  # 같은 로봇들의 순환이 새 일로 다시 생기고 유예가 지난다
+        d.core._check_deadlock(d.now[0])
+        d.now[0] += d.params.deadlock_grace_s
+    assert not {"DEADLOCK_RETREAT", "DEADLOCK_UNRESOLVED"} & set(codes(d.core._out))
+    assert m.goal is not None and m.goal.id == cmd.goal_id
+    assert d.core._retreating[0] == "r1"
+
+
+def test_an_old_cycles_retreat_does_not_mark_the_new_cycle_unresolved():
+    """1-A 재검수 2의 5: 지난 순환의 물러나기 판정은 새 순환의 미해결 시계를 켜지 않는다."""
+    d, m = at_the_gate()
+    cmd = retreat_by_the_cycle(d)
+    d.core.zones.cancel_request("r2", "PLAZA")
+    d.core._check_deadlock(d.now[0])
+    d.core.zones.request("r2", "PLAZA")
+    d.core._check_deadlock(d.now[0])  # 물러나기가 열린 채 새 순환이 시작된다
+    d.core.on_retreat_result("r1", cmd.goal_id, False, "OBSTACLE_BEHIND")
+    d.core._out.clear()
+    d.now[0] = d.core._retreating[2] + 0.1
+    for _ in range(2):  # 처음 판은 새 순환을 알아보고, 다음 판이 지난 물러나기를 판정한다
+        d.core._check_deadlock(d.now[0])
+        d.now[0] += 0.1
+    assert d.core._retreating is None
+    assert d.core._unresolved_at is None
+    assert "DEADLOCK_UNRESOLVED" not in codes(d.core._out)
+
+
+def test_a_retreat_whose_result_is_lost_isolates_the_robot_with_its_zones():
+    """1-A 재검수 2의 3: 결과를 잃은 물러나기는 로봇이 섰는지 모른다. 구역을 쥔 채 격리한다."""
+    d, m = at_the_gate()
+    (cmd,) = [c for c in retreat(d, m) if isinstance(c, RetreatCmd)]
+    d.now[0] = d.core._retreating[2] + 0.1
+    d.core._finish_retreat(["r1", "r2"])
+    d.core.on_goal_lost("r1", cmd.goal_id)
+    assert m.fault == "ERROR" and m.fault_reason == "RETREAT_LOST"
+    assert {"PLAZA", "F1"} <= set(d.core.zones.held_by("r1"))

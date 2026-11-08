@@ -188,15 +188,21 @@ class TrafficRecovery:
                                                           strict=True)):
             cycle = find_cycle(graph) or []
             self._deadlock_cycle = tuple(cycle)
+            self._deadlock_episode += 1
             self._deadlock_since = None
             self._deadlock_acted = False
             if not self._retreat_open():
                 self._retreating = None  # 열린 물러나기는 순환이 바뀌어도 기한까지 지켜본다
             self._unresolved_at = None
         self._deadlock_members = cycle_members(graph) if cycle else frozenset()
+        if self._retreating and self._retreat_from[0] != self._deadlock_episode:
+            # 지난 순환의 물러나기가 아직 열려 있다. 끝날 때까지 새 순환은 손대지 않고 세워 둔다
+            # (1-A 재검수 2의 1, 5). 그 판정은 지난 순환의 것이라 새 순환의 미해결 시계를
+            # 켜지 않는다.
+            if now >= self._retreating[2]:
+                self._finish_retreat(list(self._retreat_from[1]), stale=True)
+            return self._deadlock_members
         if not cycle:
-            if self._retreat_open() and now >= self._retreating[2]:
-                self._cancel_open_retreat()
             return self._deadlock_members
         if self._deadlock_since is None:
             self._deadlock_since = now
@@ -226,6 +232,7 @@ class TrafficRecovery:
 
         양보할 로봇이 물러날 수 없으면 순환의 다른 로봇을 우선순위가 낮은 차례로 본다.
         """
+        self._retreat_from = (self._deadlock_episode, tuple(cycle))
         m = self._missions[robot]
         given_up = [zone for zone in self.zones.held_by(robot) if self._off_the_floor(m, zone)]
         if not given_up:
@@ -337,8 +344,8 @@ class TrafficRecovery:
             robot, zones, _ = self._retreating
             self._retreating = (robot, zones, self._clock() + self.params.recover_check_s)
 
-    def _finish_retreat(self, cycle: list[str]) -> None:
-        """멈춘 로봇이 아직 밖에 있는 구역만 놓는다."""
+    def _finish_retreat(self, cycle: list[str], stale: bool = False) -> None:
+        """멈춘 로봇이 아직 밖에 있는 구역만 놓는다. stale이면 지난 순환의 물러나기다."""
         robot, zones, _ = self._retreating
         m = self._missions[robot]
         if self._retreat_open():
@@ -359,7 +366,7 @@ class TrafficRecovery:
                 self._retreating = (robot, zones, self._clock() + self.params.recover_check_s)
                 return
         self._retreating = None
-        if nothing_released:
+        if nothing_released and not stale:
             self._event("ERROR", "DEADLOCK_UNRESOLVED",
                         f"{robot} of {cycle} entered {zones} before it stopped", robot)
             self._unresolved_at = self._clock()
