@@ -689,7 +689,10 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
 
     def _off_the_floor(self, m: _Mission, zone: str) -> bool:
         # 바닥은 중심선 양쪽 half_width까지라, 더해서 중심선 기준 거리로 되돌린다.
-        distance = self.site.distance_to_zone(m.x, m.y, zone) + self.site.half_width
+        # 칸(F-2)에는 중심선이 없다. 칸 상자에서 잰 거리 그대로 쓴다.
+        distance = self.site.distance_to_zone(m.x, m.y, zone)
+        if not (self.site.unit_area(zone) is not None and ">" not in zone):
+            distance += self.site.half_width
         return distance >= self.params.release_distance_m
 
     def _count_reports_outside(self, m: _Mission) -> None:
@@ -1001,16 +1004,9 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
     def _request_next_zone(self, m: _Mission) -> None:
         """현재 구역(과 빌린 구역) 말고 쥔 것이 없을 때만 다음 구역을 요청한다."""
         current, following = self._upcoming(m)
-        if self._cells_on:
-            # 칸 모드(F-2): 자유 구역은 칸 묶음과 출구 다음 구역을 한꺼번에 청한다
-            if current in self.site.free_areas and not self._request_cells(m, current):
-                return
-            if following in self.site.free_areas:
-                held = self._held_view(m)
-                if following in held or self._holds_ahead(m, current, held):
-                    m.wait_zone = None  # 지난 구역을 아직 쥐었으면 다음을 청하지 않는다
-                elif self._request_cells(m, following):
-                    m.wait_zone = None
+        if self._cells_on and current in self.site.free_areas:
+            # 칸 모드(F-2): 자유 구역은 칸 묶음과 출구 다음 구역을 한꺼번에 청한다(아래 우회 뒤도)
+            if not self._request_cells(m, current):
                 return
         if following is None:
             return

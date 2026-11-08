@@ -158,3 +158,45 @@ def test_cells_are_off_in_the_dataclass_and_on_in_the_yaml():
     assert params.free_cells is True
     assert replace(params, free_cells=False).free_cells is False
     assert FleetParams.__dataclass_fields__["free_cells"].default is False
+
+
+def test_a_cell_counts_as_left_only_at_the_release_distance_from_its_box():
+    """칸에는 중심선이 없다. 레인처럼 half_width를 더하면 0.15 m에서 놓아 출구 레인의
+    충돌 쌍(앞 release_distance_m을 뺐다)과 어긋난다(Codex F-2 지적 1)."""
+    d = cells_drive({"r1": "F1"})
+    m = d.m()
+    m.x, m.y = 1.35, 0.34  # 칸 바닥(y = 0.5)에서 0.16 m
+    assert not d.core._off_the_floor(m, "PLAZA/1,0")
+    m.x, m.y = 1.35, 0.29  # 0.21 m
+    assert d.core._off_the_floor(m, "PLAZA/1,0")
+
+
+def test_the_claim_covers_the_body_of_a_robot_drifting_up_to_the_lane_error_limit():
+    """몸(중심이 경로에서 lane_error_warn_m 안, 반지름 r)이 쥔 칸 안에 있어야 한다(지적 2)."""
+    d = cells_drive({"r1": "F1"}, lane_error_warn_m=0.3)
+    out = d.tick(3)
+    answer_straight(d, out)
+    d.tick(1)
+    claim = d.m().claims["PLAZA"]
+    reach = d.core.params.lane_error_warn_m + d.core.params.robot_radius_m
+    assert set(d.core.site.cells_near("PLAZA", claim.line, reach)) <= claim.units
+
+
+def test_the_rest_of_a_path_that_comes_back_near_its_start_is_not_cut_short():
+    """가장 가까운 선분만 보면 되돌아오는 경로의 끝을 골라 갈 길을 버린다(지적 4).
+    오차 한도 안의 가장 앞 선분을 고른다(남기는 쪽이 안전하다)."""
+    from fleet_core.traffic.free_area import _remaining
+    line = [(0.0, 0.0), (2.0, 0.0), (2.0, 1.0), (0.05, 0.02)]
+    rest = _remaining(line, 0.05, 0.03, near=0.15)
+    assert (2.0, 0.0) in rest and (2.0, 1.0) in rest
+    assert _remaining(line, 2.0, 0.5, near=0.15)[1:] == [(2.0, 0.5), (2.0, 1.0), (0.05, 0.02)]
+
+
+def test_a_detour_is_still_considered_before_asking_for_the_cells(monkeypatch):
+    """칸 모드에서도 다음 구역이 자유 구역이면 우회를 먼저 본다(지적 5)."""
+    d = cells_drive({"r1": "F1"})
+    asked = []
+    monkeypatch.setattr(d.core, "_consider_detour",
+                        lambda m, zone: asked.append(zone) or False)
+    d.tick(3)
+    assert "PLAZA" in asked

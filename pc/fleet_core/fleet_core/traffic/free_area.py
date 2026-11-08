@@ -19,13 +19,17 @@
 잠가 여러 대가 함께 지난다.
   - 들어가기 전에 광장 안 경로부터 받는다(path 모드. 답이 없으면 직선). point 모드는 로봇이
     알아서 지나므로 칸을 모두 잡는다.
-  - 그 경로(자유 구역 앞뒤 레인 포함)에서 release_distance_m 안에 드는 칸, 들어오는 출입구의
-    진입 레인, 출구 다음 구역을 모두 한꺼번에 청한다(request_all, 전부 아니면 전무). 자유 구역
-    안에서는 쥔 채 다른 칸을 기다리지 않으므로 교착의 점유 대기가 없다.
-  - 로봇 몸(중심이 경로에서 e 안, 반지름 r)은 e + r <= release_distance_m이면 쥔 칸 안에 있다.
-    칸이 겹치지 않으면 몸도 겹치지 않는다.
-  - 지나간 칸은 지금의 해제 규칙(바닥에서 release_distance_m 넘게 떨어진 보고 N번)으로 놓는다.
-    남은 경로에서 release_distance_m 안에 드는 칸은 놓지 않는다.
+  - 그 경로(자유 구역 앞뒤 레인 포함)에서 _cell_reach(release_distance_m와
+    lane_error_warn_m + robot_radius_m 중 큰 것) 안에 드는 칸, 들어오는 출입구의 진입 레인,
+    출구 다음 구역을 모두 한꺼번에 청한다(request_all, 전부 아니면 전무). 들어갈 때는 쥔 채
+    다른 칸을 기다리지 않는다. 예외: 자유 구역 안에서 경로가 바뀌면 몸 둘레 칸을 쥔 채 새 묶음을
+    기다린다. 그 대기는 대기 그래프에 들고, 칸 모드는 자유 구역 안으로 물러나지 않으므로
+    교착이면 멈춰 기다린다(안전 쪽).
+  - 로봇 몸(중심이 경로에서 e <= lane_error_warn_m 안, 반지름 r)은 쥔 칸 안에 있다. 더 벗어나면
+    레인 이탈 감시가 세운다. 칸이 겹치지 않으면 몸도 겹치지 않는다.
+  - 지나간 칸은 지금의 해제 규칙(칸 상자에서 release_distance_m 넘게 떨어진 보고 N번)으로
+    놓는다. 칸에는 중심선이 없어 half_width를 더하지 않는다. 남은 경로에서 _cell_reach 안에 드는
+    칸은 놓지 않는다. 남은 경로는 오차 한도 안의 가장 앞 선분부터 센다.
   - 칸을 다 쥐었으면 그 자유 구역을 "쥔 구역"으로 본다(_held_view). 자유 구역 단위 자체는
     잡지 않는다.
 
@@ -50,11 +54,16 @@ class _Claim:
     granted: bool = False
 
 
-def _remaining(line, x: float, y: float) -> list:
-    """꺾은선에서 로봇보다 앞인 부분: 로봇 자리, 가장 가까운 선분 위의 발, 그 뒤 점들."""
+def _remaining(line, x: float, y: float, near: float = 0.0) -> list:
+    """꺾은선에서 로봇보다 앞인 부분: 로봇 자리, 고른 선분 위의 발, 그 뒤 점들.
+
+    로봇에서 near 안인 가장 앞 선분을 고르고, 없으면 가장 가까운 선분이다. 되돌아오는 경로의
+    뒤 선분을 골라 갈 길을 버리지 않는다(남기는 쪽으로 틀린다)."""
     if len(line) == 1:
         return [(x, y), line[0]]
-    best = min(range(len(line) - 1), key=lambda i: _point_segment(x, y, *line[i], *line[i + 1]))
+    gaps = [_point_segment(x, y, *line[i], *line[i + 1]) for i in range(len(line) - 1)]
+    best = next((i for i, gap in enumerate(gaps) if gap <= near),
+                min(range(len(gaps)), key=gaps.__getitem__))
     (ax, ay), (bx, by) = line[best], line[best + 1]
     vx, vy = bx - ax, by - ay
     denom = vx * vx + vy * vy
@@ -182,6 +191,13 @@ class TrafficFreeArea:
     def _cells_on(self) -> bool:
         return self.params.free_cells and bool(self.site.free_areas)
 
+    @property
+    def _cell_reach(self) -> float:
+        """경로에서 이만큼 안의 칸을 청한다. 몸(중심이 경로에서 lane_error_warn_m 안, 반지름 r)이
+        쥔 칸 안에 있도록 e + r보다 작지 않게 한다."""
+        p = self.params
+        return max(p.release_distance_m, p.lane_error_warn_m + p.robot_radius_m)
+
     def _held_view(self, m: _Mission) -> list:
         """경로 규칙에 쓰는 쥔 구역. 칸 모드에서는 칸 잠금 단위 대신 칸을 다 쥔 자유 구역 이름."""
         held = self.zones.held_by(m.name)
@@ -245,9 +261,9 @@ class TrafficFreeArea:
                 if (lane in self.site.free_lanes and lane not in m.free_paths
                         and not self._ask_free_path(m, lane)):
                     return None
-        line = _remaining(self._crossing_line(m, i, j), m.x, m.y)
+        line = _remaining(self._crossing_line(m, i, j), m.x, m.y, self.params.lane_error_warn_m)
         if self._follows_path:
-            units = set(self.site.cells_near(area, line, self.params.release_distance_m))
+            units = set(self.site.cells_near(area, line, self._cell_reach))
         else:  # 로봇이 알아서 지나므로 경로를 모른다
             units = self._area_cells(area)
         if i > 0 and self._zone(m.path[i - 1]) != area:
@@ -283,8 +299,8 @@ class TrafficFreeArea:
             return set()
         if not claim.granted or area != current or not self._follows_path:
             return set(claim.units)
-        rest = _remaining(claim.line, m.x, m.y)
-        return set(self.site.cells_near(area, rest, self.params.release_distance_m)) & claim.units
+        rest = _remaining(claim.line, m.x, m.y, self.params.lane_error_warn_m)
+        return set(self.site.cells_near(area, rest, self._cell_reach)) & claim.units
 
     def _unit_needs(self, m: _Mission, needed: set, current: str) -> set:
         """_needed_zones의 자유 구역 이름을 놓으면 안 되는 칸 잠금 단위로 바꾼다."""
