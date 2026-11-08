@@ -191,8 +191,9 @@ class TrafficRecovery:
             self._deadlock_episode += 1
             self._deadlock_since = None
             self._deadlock_acted = False
-            if not self._retreat_open():
-                self._retreating = None  # 열린 물러나기는 순환이 바뀌어도 기한까지 지켜본다
+            if self._retreat_rechecks is None:
+                # 구역 포기는 전처럼 버린다. 진짜 물러나기는 확인까지 본다(끝이 있다, 1-A 재검수 3)
+                self._retreating = None
             self._unresolved_at = None
         self._deadlock_members = cycle_members(graph) if cycle else frozenset()
         if self._retreating and self._retreat_from[0] != self._deadlock_episode:

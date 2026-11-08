@@ -305,3 +305,18 @@ def test_a_retreat_whose_result_is_lost_isolates_the_robot_with_its_zones():
     d.core.on_goal_lost("r1", cmd.goal_id)
     assert m.fault == "ERROR" and m.fault_reason == "RETREAT_LOST"
     assert {"PLAZA", "F1"} <= set(d.core.zones.held_by("r1"))
+
+
+def test_a_retreat_that_ends_after_the_cycle_went_away_still_gets_its_zone_check():
+    """1-A 재검수 3: 순환이 없는 동안 결과가 와도 확인 시각에 벗어난 구역을 놓는다."""
+    d, m = at_the_gate()
+    cmd = retreat_by_the_cycle(d)
+    d.core.zones.cancel_request("r2", "PLAZA")
+    d.core._check_deadlock(d.now[0])  # 순환이 사라졌다
+    d.core.on_retreat_result("r1", cmd.goal_id, True)
+    report(d, "r1", *d.site.waypoint_pose("F1"), SOUTH)  # 물러나 F1 레인 시작에 섰다
+    d.core._check_deadlock(d.now[0])  # 순환 없는 판이 한 번 더 지난다
+    d.now[0] = d.core._retreating[2] + 0.1
+    d.core._check_deadlock(d.now[0])
+    assert "PLAZA" not in d.core.zones.held_by("r1")
+    assert d.core._retreating is None
