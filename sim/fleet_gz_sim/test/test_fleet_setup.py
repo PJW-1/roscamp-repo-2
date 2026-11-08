@@ -32,7 +32,7 @@ def test_a_scenario_with_its_own_map_places_pinkys_on_that_map():
     """free_area_crossing은 feature_map_crossing을 쓴다(버전 2 F-2). 시작 지점도 그 지도에서."""
     site, scenario = load(scenario_path("free_area_crossing", share()))
     assert "PLAZA" in site.free_areas
-    assert start_poses(site, scenario)["pinky1"][:2] == pytest.approx((1.10, 0.55))  # P-3
+    assert start_poses(site, scenario)["pinky1"][:2] == pytest.approx((1.10, 0.50))  # P-3
 
 
 def test_a_scenario_with_robot_faults_is_refused():
