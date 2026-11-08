@@ -147,7 +147,7 @@ def pinky(ns: str, x, y, yaw, *, heartbeat_timeout_s="1.5", nav_log_level="warn"
                 "use_composition": "true" if nav_composition else "false",
                 "params_file": str(sim_nav_params(
                     nav / "params" / "nav2_params.yaml",
-                    Path(tempfile.gettempdir()) / f"nav2_params_sim_{ns}.yaml")),
+                    Path(tempfile.gettempdir()) / f"nav2_params_sim_{ns}_{os.getpid()}.yaml")),
             }.items()),
     ]
     if fsm:

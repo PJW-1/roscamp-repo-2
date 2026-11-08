@@ -69,5 +69,8 @@ def test_each_pinky_starts_nav2_with_the_sim_params(tmp_path, monkeypatch):
         nav = next(a for a in args if "map_fine" in a)
         path = Path(nav["params_file"])
         assert path.parent == tmp_path
+        # one file per launch process: two sim runs with the same robot names do not share it
+        # (Codex review of 5a0587b)
+        assert ns in path.name and str(launch_parts.os.getpid()) in path.name
         amcl = _amcl(yaml.safe_load(path.read_text(encoding="utf-8")))
         assert {k: amcl[k] for k in launch_parts.SIM_AMCL} == launch_parts.SIM_AMCL
