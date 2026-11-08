@@ -28,6 +28,7 @@ from fleet_core.common.commands import (
 )
 from fleet_core.traffic.blocking import TrafficBlocking
 from fleet_core.traffic.detour import TrafficDetour
+from fleet_core.traffic.idle_watch import TrafficIdleWatch
 from fleet_core.traffic.isolation import TrafficIsolation
 from fleet_core.traffic.lane_path import TrafficPath
 from fleet_core.traffic.mission import (
@@ -68,7 +69,8 @@ from fleet_core.traffic.zones import ZoneLocks
 
 
 class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, TrafficDetour,
-                        TrafficIsolation, TrafficPath, TrafficReleaseFloor, TrafficReinstate):
+                        TrafficIsolation, TrafficPath, TrafficReleaseFloor, TrafficReinstate,
+                        TrafficIdleWatch):
     def __init__(self, site, params, robots, clock, next_goal_id=None):
         if site.shortest_exit_lane() <= params.release_distance_m:
             raise ValueError(
@@ -99,6 +101,10 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         self._deadlock_since: float | None = None
         self._deadlock_acted = False
         self._retreating: tuple[str, list[str], float] | None = None  # 로봇, 구역, 해제 시각
+        self._deadlock_cycle: tuple[str, ...] = ()  # the cycle being handled, in wait order
+        # robots on any wait cycle at the last check; the idle watch (H2) skips them
+        self._deadlock_members: frozenset[str] = frozenset()
+        self._unresolved_at: float | None = None  # when DEADLOCK_UNRESOLVED was reported
         self._startup_since: float | None = None
         self._missing_reported = False
         self._no_robot_warned = False
@@ -207,6 +213,7 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
             return
         m.goal = None
         m.not_sent_warned = False
+        m.last_result = "SUCCEEDED" if success else reason
         if success and not m.comm and not self._at_target(m, goal.target_idx):
             m.settle_idx = goal.target_idx
             m.arrival_by = m.retry_at = self._clock() + self.params.arrival_settle_s
@@ -249,6 +256,12 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
             m.not_sent_warned = True
             self._event("WARN", "GOAL_NOT_SENT", f"no {goal.kind} server, trying again", robot)
 
+    def on_goal_lost(self, robot, goal_id) -> None:
+        """노드가 취소한 goal의 결과를 잃었다. 끝난 것으로 본다. 로봇은 새 goal로 덮어쓴다."""
+        m = self._missions.get(robot)
+        if m:
+            self._cancel_finished(m, goal_id)
+
     def on_dock_result(self, robot, goal_id, success, error_x_cm=0.0, error_y_cm=0.0,
                        error_yaw_deg=0.0) -> None:
         m = self._missions.get(robot)
@@ -290,11 +303,11 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         """한 주기 전체. 단계 사이에 할 일이 없는 호출자용."""
         now = self._clock()
         everyone_here = self.tick_begin(now)
-        halted = self.tick_progress(now)
-        if self.running and not halted and everyone_here:
-            self.tick_pick()
+        stopped = self.tick_progress(now)
+        if self.running and everyone_here:
+            self.tick_pick(stopped)
             for robot in self.robots:
-                if self.available(robot):
+                if self.available(robot) and robot not in stopped:
                     self.step(robot)
         return self.take_output()
 
@@ -308,8 +321,9 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         self._finish_recoveries(now)
         return everyone_here
 
-    def tick_progress(self, now: float) -> bool:
-        """자세를 따라가며 지난 구역을 놓는다. 대기 순환으로 새 이동을 멈춘 동안 True."""
+    def tick_progress(self, now: float) -> frozenset[str]:
+        """자세를 따라가며 지난 구역을 놓는다. Returns the robots of a wait cycle, which get no
+        new moves this tick (empty when there is none)."""
         for m in self._missions.values():
             self._watch_off_lane(m, now)
             if m.available:
@@ -323,17 +337,23 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
                 m.stall_hold = False
             if m.block:
                 self._watch_block(m, now)
+            self._watch_idle(m, now)
         return self._check_deadlock(now)
 
-    def tick_pick(self) -> None:
-        """열린 호출에 응할 로봇을 정하고, 바뀐 로봇의 경로를 다시 잡는다."""
+    def tick_pick(self, stopped: frozenset[str] = frozenset()) -> None:
+        """열린 호출에 응할 로봇을 정하고, 바뀐 로봇의 경로를 다시 잡는다.
+
+        Robots in `stopped` (a wait cycle) are not picked and keep their path; a call they had
+        goes to another robot."""
         # 해제된 로봇은 코스 밖이라 고장 로봇과 달리 아무도 막지 않는다.
-        infos = [self._robot_info(m) for m in self._missions.values()
+        infos = [self._robot_info(m, m.name in stopped) for m in self._missions.values()
                  if m.placed and m.fault != OUT_OF_SERVICE]
         self._warn_if_no_robot()
         called = self.selector.pick(len(self._open_calls), infos)
         for m in self._missions.values():
-            if self.available(m.name):
+            if m.name in stopped:
+                m.called = False
+            elif self.available(m.name):
                 m.called = m.name in called
                 m.await_pick = False
                 self._redirect(m)
@@ -643,7 +663,7 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
 
     # ---- calling robots -----------------------------------------------------------------
 
-    def _robot_info(self, m: _Mission) -> RobotInfo:
+    def _robot_info(self, m: _Mission, stopped: bool = False) -> RobotInfo:
         # 대기 지점 안에서 달리는 로봇은 멈출 지점에서, 빠져나가는 로봇은 아직 선 지점에서 잰다.
         index = self._anchor(m)
         if m.path[index] not in self.site.parking:
@@ -657,8 +677,9 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
             # 막힘으로 선 로봇은 새 호출을 받지 않고, 대기 줄에서는 뒤 로봇이 앞지르지 않는다.
             # 재투입 때문에 세운 로봇은 available(robot)이 거짓이라 호출도 앞지르기도 없다
             eligible=(self.available(m.name) and not m.hold and m.dispatch is None
-                      and (m.called or not self._held_for_block(m))),
-            available=self.available(m.name) and not self._held_for_block(m),
+                      and not stopped and (m.called or not self._held_for_block(m))),
+            # A robot standing still in a wait cycle is not overtaken in the queue either (H1).
+            available=self.available(m.name) and not self._held_for_block(m) and not stopped,
         )
 
     def _committed(self, m: _Mission) -> bool:
@@ -732,7 +753,7 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         spots = self.site.parking
         start = spots.index(from_waypoint) + 1 if from_waypoint in spots else 0
         goal = None
-        for waypoint in spots[start:]:
+        for waypoint in self._usable_parking(m)[start:]:
             zone = self._zone(waypoint)
             holder = self.zones.holder(zone)
             if (holder and holder != m.name) or set(self.zones.queue(zone)) - {m.name}:
@@ -746,7 +767,36 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         if goal is None:
             # 이미 대기 중이고 앞이 막혔으면 그대로, 밖이면 입구를 기다린다.
             goal = anchor_waypoint if anchor_waypoint in self.site.parking else self.site.parking[0]
+            if goal not in self._usable_parking(m):
+                goal = self._wait_outside_queue(anchor_waypoint)
         self._start_leg(m, TO_PARK, None, goal)
+
+    def _usable_parking(self, m: _Mission) -> tuple:
+        """Parking spots a robot can still leave the queue from (work order 1.1, H3).
+
+        The queue is one-way: from a spot the only ways out are the exits of that spot and the
+        spots after it. An exit held by a robot that does not move on its own (isolated,
+        OUT_OF_SERVICE) does not count. Robots already past the last usable spot stay put.
+        """
+        spots = self.site.parking
+        for end in range(len(spots), 0, -1):
+            exits = {lane.b for lane in self.site.lanes.values()
+                     if lane.a == spots[end - 1] and lane.b not in spots}
+            if any(not self._held_indefinitely(self._zone(w), m) for w in exits):
+                return spots[:end]
+        return ()
+
+    def _held_indefinitely(self, zone: str, m: _Mission) -> bool:
+        holders = self.zones.holders_around(zone, m.name).values()
+        return any(self._missions[h].fault in (ERROR, OUT_OF_SERVICE)
+                   for h in holders if h in self._missions)
+
+    def _wait_outside_queue(self, anchor_waypoint):
+        """No usable spot: wait where it is, or off a station dock just before the queue."""
+        if anchor_waypoint not in self.site.docks:
+            return anchor_waypoint
+        way = self.site.plan(anchor_waypoint, self.site.parking[0])
+        return way[-2] if len(way) > 1 else anchor_waypoint
 
     def _next_work(self, m: _Mission) -> None:
         """다음 일을 위해 도크나 대기 지점을 떠난다."""
@@ -808,6 +858,10 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         waypoint = m.path[anchor]
         spots = self.site.parking
         old_tail = m.path[anchor + 1:]
+        if (waypoint not in spots and set(old_tail) & set(spots)
+                and not self._usable_parking(m)):
+            self._start_park_leg(m)  # the exit got held on the way: stop outside the queue
+            return
         if waypoint not in spots and old_tail[:1] != [spots[0]]:
             return
         goal = self._park_goal(m, waypoint)

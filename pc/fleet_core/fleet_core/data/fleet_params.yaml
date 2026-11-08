@@ -42,6 +42,7 @@ cancel_warn_after: 5          # 결과 없이 이만큼 주기가 지나면 CANC
 report_retry_s: 2.0           # 추정: 답이 없으면 이만큼 뒤 주문 보고를 다시 보냄
 zone_wait_warn_s: 60.0        # 한 구역을 이만큼 기다리면 경고
 deadlock_grace_s: 5.0         # 교착 두 번째 단계 전 대기
+deadlock_unresolved_s: 30.0   # 제안: DEADLOCK_UNRESOLVED 뒤 같은 순환이 이만큼 이어지면 우선순위가 가장 낮은 로봇을 격리
 score_same_call: -4.0         # 이미 불린 로봇은 다른 로봇이 확실히 가깝지 않으면 호출을 유지
 score_distance_weight: 0.91   # 레인 거리 1 m당
 priority_at_station: 200
@@ -50,3 +51,6 @@ input_pose_margin_m: 1.0      # 웨이포인트 범위 밖으로 이보다 먼 �
 off_lane_timeout_s: 20.0      # 레인을 벗어나 선 로봇이 이 안에 못 돌아오면 ERROR(OFF_LANE)
 lane_goal_mode: path          # path: 레인 폴리라인을 보내 FollowPath로 따르게 한다. point: 지점 하나(비교용)
 release_clear_of_floor: true  # 나가는 레인 s > d에 더해 구역의 다른 바닥 선에서도 d 이상이어야 놓는다(예각 합류)
+idle_watch_s: 10.0            # 제안: 주행 단계인데 goal도 구역 대기표도 없이 이만큼 서면 ROBOT_IDLE, 그 지점 goal을 다시 보낸다
+dispatch_retry_wait_s: 2.0    # 제안: 출고 호출이 실패하면 이만큼 뒤 다시 보낸다
+dispatch_retry_limit: 3       # 제안: 출고 호출 실패가 이 수를 넘으면 ERROR(DISPATCH_FAILED)

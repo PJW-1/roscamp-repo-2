@@ -7,7 +7,13 @@ from __future__ import annotations
 
 from fleet_core.common.commands import DispatchResult
 from fleet_core.common.validate import checked, clear_problem, text
-from fleet_core.traffic.deadlock import choose_retreat, find_cycle, priority, wait_graph
+from fleet_core.traffic.deadlock import (
+    choose_retreat,
+    cycle_members,
+    find_cycle,
+    priority,
+    wait_graph,
+)
 from fleet_core.traffic.mission import (
     AT_STATION,
     COMM_LOST,
@@ -151,14 +157,31 @@ class TrafficRecovery:
         m = self._missions[robot]
         return priority(self.params, m.phase == AT_STATION, m.dispatch is not None)
 
-    def _check_deadlock(self, now: float) -> bool:
-        """대기 순환이 있는 동안 True. 그동안 새 이동과 구역 허가를 멈춘다."""
-        cycle = find_cycle(wait_graph(self.zones))
-        if not cycle:
+    def _check_deadlock(self, now: float) -> frozenset[str]:
+        """The robots on any wait cycle, empty when there is none (work order H1).
+
+        Only these robots get no new moves while a cycle lasts; robots outside go on, and the
+        zone locks keep them apart. One cycle is handled at a time: the one being handled keeps
+        its clock while all its wait edges remain, even if another cycle comes and goes; the
+        other cycle's robots stand still until it comes up. A cycle with other wait edges, even
+        among the same robots, is a new episode. When the retreat could not break the cycle
+        (DEADLOCK_UNRESOLVED) and the same cycle lasts deadlock_unresolved_s more, the robot
+        choose_retreat picks is isolated (part 5.5).
+        """
+        graph = wait_graph(self.zones)
+        cycle = list(self._deadlock_cycle)
+        if not cycle or not all(holder in graph.get(waiter, ())
+                                for waiter, holder in zip(cycle, cycle[1:] + cycle[:1],
+                                                          strict=True)):
+            cycle = find_cycle(graph) or []
+            self._deadlock_cycle = tuple(cycle)
             self._deadlock_since = None
             self._deadlock_acted = False
             self._retreating = None
-            return False
+            self._unresolved_at = None
+        self._deadlock_members = cycle_members(graph) if cycle else frozenset()
+        if not cycle:
+            return self._deadlock_members
         if self._deadlock_since is None:
             self._deadlock_since = now
             self._event("ERROR", "DEADLOCK_DETECTED", f"wait cycle {cycle}")
@@ -168,7 +191,19 @@ class TrafficRecovery:
             self._retreat(choose_retreat(cycle, self._priority), cycle)
         elif self._retreating and now >= self._retreating[2]:
             self._finish_retreat(cycle)
-        return True
+        elif self._deadlock_acted and not self._retreating and self._unresolved_at is None:
+            # The retreat gave up a zone, yet every wait edge of this cycle is still here.
+            robot = choose_retreat(cycle, self._priority)
+            self._event("ERROR", "DEADLOCK_UNRESOLVED",
+                        f"{robot} of {cycle} gave up a zone but the cycle remains", robot)
+            self._unresolved_at = now
+        elif (self._unresolved_at is not None
+              and now - self._unresolved_at >= self.params.deadlock_unresolved_s):
+            self._unresolved_at = None
+            # _fail cancels the robot's zone requests, so the cycle is gone by the next tick.
+            self._fail(self._missions[choose_retreat(cycle, self._priority)],
+                       "DEADLOCK_UNRESOLVED")
+        return self._deadlock_members
 
     def _retreat(self, robot: str, cycle: list[str]) -> None:
         """아직 들어가지 않은 구역 예약을 내놓는다. 실제 후진은 아직 없다."""
@@ -177,6 +212,7 @@ class TrafficRecovery:
         if not given_up:
             self._event("ERROR", "DEADLOCK_UNRESOLVED",
                         f"{robot} of {cycle} has no unentered zone to give up", robot)
+            self._unresolved_at = self._clock()
             return
         if m.goal:
             self._cancel_goal(m)
@@ -198,3 +234,4 @@ class TrafficRecovery:
         if nothing_released:
             self._event("ERROR", "DEADLOCK_UNRESOLVED",
                         f"{robot} of {cycle} entered {zones} before it stopped", robot)
+            self._unresolved_at = self._clock()

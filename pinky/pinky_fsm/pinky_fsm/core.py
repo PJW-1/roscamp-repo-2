@@ -27,6 +27,7 @@ LOCALIZING = "LOCALIZING"
 # MoveTo.Result.REASON_* 와 같은 값
 NAV_ABORTED = "NAV_ABORTED"
 CANCELED = "CANCELED"
+TIMEOUT = "TIMEOUT"
 HEARTBEAT_LOST = "HEARTBEAT_LOST"
 PATH_NOT_CONNECTED = "PATH_NOT_CONNECTED"
 DOCK_UNAVAILABLE = "DOCK_UNAVAILABLE"  # Dock 결과에는 reason이 없다. 로그에만 남는다
@@ -46,6 +47,9 @@ class FsmParams:
     block_report_s: float = 1.0  # 계약 4절: 1초 서 있으면
     block_clear_s: float = 1.0  # 계약 4절: 1초 안 보이면 끈다
     block_lookahead_m: float = 0.5  # 계약 4절: 경로 위 0.5 m 안
+    # Proposed. A goal blocked this long ends with TIMEOUT. The fleet manager cancels a blocked
+    # goal after blocked_mark_s (5 s); this is the last safeguard for when it does not
+    block_timeout_s: float = 90.0
     block_sample_m: float = 0.02  # costmap 해상도(0.025)보다 촘촘하게
     path_step_m: float = 0.05  # 전달사항 6.1 poses_along
     far_success_limit: int = 3  # 목표에서 먼 Nav2 성공을 몇 번까지 다시 보낼까
@@ -83,7 +87,8 @@ class _Move:
     nav_running: bool = False
     last_send: float = 0.0
     far_successes: int = 0
-    waiting_clear: bool = False  # Nav2가 물체 때문에 멈췄다. 비키면 다시 보낸다
+    waiting_since: float | None = None  # when Nav2 stopped for an obstacle; resend when clear
+    blocked_since: float | None = None  # when this goal became blocked (block_timeout_s)
 
 
 @dataclass
@@ -100,7 +105,9 @@ class PinkyFsm:
         self._localized = False
         self._pose: Sequence[float] | None = None  # 마지막으로 받은 자세
         self._seq = 0
-        self._nav_running = False  # 끝나지 않은 FollowPath 목표가 있다
+        # A FollowPath may still be out there: one was sent since the last CancelNav. The latest
+        # result does not clear it, since a replaced one may be accepted late.
+        self._nav_running = False
         self._alive = -math.inf  # 마지막 heartbeat나 목표 수락
         self._stopped_since: float | None = None
         self._blocked = False
@@ -186,20 +193,25 @@ class PinkyFsm:
         if not isinstance(g, _Move) or seq != g.seq:
             return []  # 교체된 옛 목표의 결과(Nav2는 새 목표를 받으면 옛 것을 ABORTED로 끝낸다)
         g.nav_running = False
-        self._nav_running = False
+        # Every end below stops Nav2: a replacement does not cancel the previous FollowPath
+        # (guide 2.1), so an older one may still run or be accepted late.
+        if outcome == "rejected":
+            return self._end_active(NAV_ABORTED, stop=True)
         if outcome == "succeeded":
             if pose is not None and math.dist(pose[:2], g.target[:2]) <= self.p.arrival_tolerance_m:
                 self._active = None
                 self._rest = IDLE
-                return [Finish(g.goal_id, True, "")]
+                return [Finish(g.goal_id, True, "")] + self._end_active("", stop=True)
             g.far_successes += 1
             if g.far_successes > self.p.far_success_limit:
-                return self._end_active(NAV_ABORTED, stop=False)
+                return self._end_active(NAV_ABORTED, stop=True)
             return self._send_rest(g, now, pose)
         if pose is not None and obstacle(self._ahead(g, pose)):
-            g.waiting_clear = True  # 계약 4절: 막힌 동안은 목표를 끝내지 않는다
+            g.waiting_since = now  # 계약 4절: wait while blocked, up to block_timeout_s
+            if g.blocked_since is None:
+                g.blocked_since = now
             return []
-        return self._end_active(NAV_ABORTED, stop=False)
+        return self._end_active(NAV_ABORTED, stop=True)
 
     def tick(self, now: float, pose: Sequence[float] | None, speed: tuple[float, float],
              obstacle: Obstacle) -> list:
@@ -210,13 +222,20 @@ class PinkyFsm:
         cmds: list = []
         g = self._active
         if (g is not None and self.p.heartbeat_timeout_s > 0
-                and now - self._alive > self.p.heartbeat_timeout_s):
+                and now - self._alive >= self.p.heartbeat_timeout_s):
             cmds += self._end_active(HEARTBEAT_LOST, stop=True)
+            g = None
+        if g is not None and pose is None:
+            cmds += self._end_active(NAV_ABORTED, stop=True)  # never drive without a pose
             g = None
         if isinstance(g, _Move) and pose is not None:
             g.s = self._track(g, pose)
-        cmds += self._watch_obstacle(now, g, pose, speed, obstacle)
+        cmds += self._watch_obstacle(now, g, pose, speed, obstacle)  # a clear comes first
         g = self._active
+        if (isinstance(g, _Move) and g.blocked_since is not None
+                and now - g.blocked_since >= self.p.block_timeout_s):
+            cmds += self._end_active(TIMEOUT, stop=True)  # cannot go on; stop Nav2 if it runs
+            g = None
         if (isinstance(g, _Move) and g.nav_running and pose is not None
                 and g.route.length - g.s < self.p.refresh_within_m
                 and now - g.last_send >= self.p.refresh_every_s):
@@ -244,7 +263,7 @@ class PinkyFsm:
         else:
             self._blocked, self._clear_since = False, None
             return []
-        waiting = moving_goal and g.waiting_clear
+        waiting = moving_goal and g.waiting_since is not None
         stood = self._stopped_since is not None and now - self._stopped_since >= \
             self.p.block_report_s
         if not (self._blocked or waiting or stood):
@@ -253,14 +272,18 @@ class PinkyFsm:
             self._clear_since = None
             if stood:
                 self._blocked = True
+            if moving_goal and self._blocked and g.blocked_since is None:
+                g.blocked_since = now  # Nav2 may hold the goal open while the robot stands
             return []
         if self._clear_since is None:
             self._clear_since = now
         if now - self._clear_since < self.p.block_clear_s:
             return []
         self._blocked, self._clear_since, self._blocked_points = False, None, None
+        if moving_goal:
+            g.blocked_since = None
         if waiting:
-            g.waiting_clear = False
+            g.waiting_since = None
             return self._send_rest(g, now, pose)  # 물체가 비켰다. 남은 선을 다시 보낸다
         return []
 

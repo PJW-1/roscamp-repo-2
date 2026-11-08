@@ -16,6 +16,7 @@ from pinky_fsm.core import (
     MOVING,
     NAV_ABORTED,
     PATH_NOT_CONNECTED,
+    TIMEOUT,
     CancelNav,
     Finish,
     FsmParams,
@@ -72,6 +73,17 @@ def test_goal_without_a_pose_fails_at_once():
     fsm = PinkyFsm(FsmParams())
     cmds = move(fsm, "g1", 0.0, pose=None)
     assert cmds == [Finish("g1", False, NAV_ABORTED)]
+
+
+def test_losing_the_pose_while_moving_stops_and_fails():
+    """Do not drive without a pose. The state turns LOCALIZING, so the fleet manager cannot
+    trust where the robot is either."""
+    fsm = ready()
+    move(fsm, "g1", 0.0)
+    fsm.heartbeat(0.5)
+    cmds = fsm.tick(0.5, None, DRIVING, no_obstacle)
+    assert cmds == [Finish("g1", False, NAV_ABORTED), CancelNav()]
+    assert fsm.state() == LOCALIZING and fsm.current_goal() == ""
 
 
 # ---- 경로 따라가기 -----------------------------------------------------------------------
@@ -195,7 +207,7 @@ def test_success_only_counts_within_the_arrival_tolerance():
     fsm = ready()
     [send] = sends(move(fsm, "g1", 1.0))
     cmds = fsm.nav_result(send.seq, "succeeded", 9.0, (0.78, 2.00, 0.2), no_obstacle)
-    assert cmds == [Finish("g1", True, "")]
+    assert cmds == [Finish("g1", True, "")] + [CancelNav()]  # no older FollowPath may run on
     assert fsm.state() == IDLE and fsm.current_goal() == ""
 
 
@@ -217,7 +229,7 @@ def test_repeated_far_successes_give_up_with_nav_aborted():
     for i in range(3):
         seq = sends(fsm.nav_result(seq, "succeeded", 2.0 + i, far, no_obstacle))[0].seq
     assert fsm.nav_result(seq, "succeeded", 6.0, far, no_obstacle) == [
-        Finish("g1", False, NAV_ABORTED)]
+        Finish("g1", False, NAV_ABORTED), CancelNav()]
 
 
 # ---- 실패 (R8) ----------------------------------------------------------------------------
@@ -227,15 +239,39 @@ def test_nav_abort_without_an_obstacle_fails_with_nav_aborted():
     fsm = ready()
     [send] = sends(move(fsm, "g1", 1.0))
     cmds = fsm.nav_result(send.seq, "aborted", 4.0, (0.35, 1.70, NORTH), no_obstacle)
-    assert cmds == [Finish("g1", False, NAV_ABORTED)]
+    assert cmds == [Finish("g1", False, NAV_ABORTED), CancelNav()]
     assert fsm.state() == IDLE
+
+
+def test_an_abort_while_the_pose_is_lost_also_cancels_older_follow_paths():
+    """Ending a goal on a FollowPath result always cancels: a replaced FollowPath whose
+    acceptance is still on its way must not start driving afterwards."""
+    fsm = ready()
+    move(fsm, "g1", 0.0)
+    fsm.heartbeat(0.5)
+    fsm.tick(0.5, (0.35, 1.70, NORTH), DRIVING, no_obstacle)
+    [second] = sends(move(fsm, "g2", 0.6, pose=(0.35, 1.70, NORTH)))
+    cmds = fsm.nav_result(second.seq, "aborted", 0.7, None, no_obstacle)
+    assert cmds == [Finish("g2", False, NAV_ABORTED), CancelNav()]
 
 
 def test_rejected_nav_goal_fails_with_nav_aborted():
     fsm = ready()
     [send] = sends(move(fsm, "g1", 1.0))
     assert fsm.nav_result(send.seq, "rejected", 1.1, (*P3, NORTH), no_obstacle) == [
-        Finish("g1", False, NAV_ABORTED)]
+        Finish("g1", False, NAV_ABORTED), CancelNav()]
+
+
+def test_rejected_replacement_stops_the_follow_path_still_running():
+    """A replacement does not cancel the previous FollowPath (guide 2.1), so when the new one
+    is rejected the previous one may still be driving. It must be cancelled."""
+    fsm = ready()
+    move(fsm, "g1", 0.0)
+    fsm.heartbeat(0.5)
+    fsm.tick(0.5, (0.35, 1.70, NORTH), DRIVING, no_obstacle)
+    [second] = sends(move(fsm, "g2", 0.6, pose=(0.35, 1.70, NORTH)))
+    cmds = fsm.nav_result(second.seq, "rejected", 0.7, (0.35, 1.72, NORTH), no_obstacle)
+    assert cmds == [Finish("g2", False, NAV_ABORTED), CancelNav()]
 
 
 # ---- 끝 근처 재전송 (R13) -------------------------------------------------------------------
@@ -267,6 +303,16 @@ def test_heartbeat_loss_stops_a_running_goal():
     cmds = fsm.tick(2.6, (0.35, 1.7, NORTH), DRIVING, no_obstacle)
     assert cmds == [Finish("g1", False, HEARTBEAT_LOST), CancelNav()]
     assert fsm.state() == IDLE
+
+
+def test_heartbeat_loss_stops_exactly_at_the_timeout():
+    """The promise is a stop command 1.5 s after the last heartbeat, not one tick later."""
+    fsm = ready()
+    move(fsm, "g1", 0.0)
+    fsm.heartbeat(1.0)
+    assert fsm.tick(2.45, (0.35, 1.7, NORTH), DRIVING, no_obstacle) == []
+    cmds = fsm.tick(2.5, (0.35, 1.7, NORTH), DRIVING, no_obstacle)
+    assert cmds == [Finish("g1", False, HEARTBEAT_LOST), CancelNav()]
 
 
 def test_goal_acceptance_counts_as_a_heartbeat():
@@ -388,6 +434,75 @@ def test_blocked_stays_after_cancel_while_the_obstacle_remains():
     assert fsm.state() == BLOCKED
     fsm.tick(5.05, here, STILL, no_obstacle)
     assert fsm.state() == IDLE
+
+
+def test_blocked_goal_ends_with_timeout_when_the_obstacle_stays():
+    """A goal that cannot go on must end with a failure or TIMEOUT. The fleet manager cancels a
+    blocked goal after blocked_mark_s (5 s), so block_timeout_s (90 s) only matters when the
+    fleet manager does not."""
+    fsm = ready()
+    [send] = sends(move(fsm, "g1", 0.0))
+    here = (0.35, 1.70, NORTH)
+    fsm.tick(1.0, here, STILL, obstacle)
+    assert fsm.nav_result(send.seq, "aborted", 2.0, here, obstacle) == []
+    for t in (5.0, 60.0, 91.9):
+        fsm.heartbeat(t)
+        assert fsm.tick(t, here, STILL, obstacle) == []
+    fsm.heartbeat(92.0)
+    assert fsm.tick(92.0, here, STILL, obstacle) == [Finish("g1", False, TIMEOUT), CancelNav()]
+    assert fsm.state() == BLOCKED and fsm.current_goal() == ""
+
+
+def test_a_goal_waiting_after_an_obstacle_abort_still_cancels_when_it_ends():
+    """The latest FollowPath ended, but an older one may still be on its way: cancel."""
+    fsm = ready()
+    [send] = sends(move(fsm, "g1", 0.0))
+    here = (0.35, 1.70, NORTH)
+    assert fsm.nav_result(send.seq, "aborted", 1.0, here, obstacle) == []
+    assert fsm.cancel("g1", 2.0) == [Finish("g1", False, CANCELED), CancelNav()]
+
+
+def test_an_obstacle_that_cleared_in_time_resends_instead_of_timing_out():
+    """Both the clear time and block_timeout_s pass before one tick: the clear wins."""
+    fsm = ready()
+    [send] = sends(move(fsm, "g1", 0.0))
+    here = (0.35, 1.70, NORTH)
+    fsm.nav_result(send.seq, "aborted", 2.0, here, obstacle)
+    fsm.heartbeat(91.5)
+    assert fsm.tick(91.5, here, STILL, no_obstacle) == []
+    fsm.heartbeat(92.6)
+    cmds = fsm.tick(92.6, here, STILL, no_obstacle)
+    assert kinds(cmds) == ["SendPath"]
+
+
+def test_blocked_goal_times_out_while_nav2_still_holds_it():
+    """BLOCKED for block_timeout_s also ends a goal Nav2 never gave up on, and stops Nav2."""
+    fsm = ready()
+    move(fsm, "g1", 0.0)
+    here = (0.35, 1.70, NORTH)
+    for t in (1.0, 2.0, 60.0, 91.9):
+        fsm.heartbeat(t)
+        assert fsm.tick(t, here, STILL, obstacle) == []
+    assert fsm.state() == BLOCKED
+    fsm.heartbeat(92.0)
+    assert fsm.tick(92.0, here, STILL, obstacle) == [Finish("g1", False, TIMEOUT), CancelNav()]
+
+
+def test_block_timeout_counts_again_after_the_obstacle_clears():
+    fsm = ready()
+    [send] = sends(move(fsm, "g1", 0.0))
+    here = (0.35, 1.70, NORTH)
+    fsm.nav_result(send.seq, "aborted", 1.0, here, obstacle)
+    fsm.heartbeat(1.5)
+    fsm.tick(1.5, here, STILL, no_obstacle)
+    fsm.heartbeat(2.6)
+    [again] = sends(fsm.tick(2.6, here, STILL, no_obstacle))  # cleared: send the rest again
+    fsm.nav_result(again.seq, "aborted", 9.0, here, obstacle)
+    for t in (10.0, 98.9):
+        fsm.heartbeat(t)
+        assert Finish("g1", False, TIMEOUT) not in fsm.tick(t, here, STILL, obstacle)
+    fsm.heartbeat(99.0)
+    assert Finish("g1", False, TIMEOUT) in fsm.tick(99.0, here, STILL, obstacle)
 
 
 def test_heartbeat_loss_while_blocked_ends_the_goal():
