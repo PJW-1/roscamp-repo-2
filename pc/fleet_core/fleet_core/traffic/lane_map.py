@@ -128,7 +128,11 @@ class LaneMap:
                              for c in data.get("parking") or [])
         self.docks = {s.dock for s in self.stations.values()}
         units = dict(data.get("units") or {})
+        bundled = {w for pair in two_way.values() for w in pair}
         for area in self.free_areas.values():
+            if bundled & set(area.gates):
+                raise LaneMapError(f"free area {area.name}: a gate cannot be in a two_way pair "
+                                   f"{sorted(bundled & set(area.gates))}")
             if area.name in units:
                 raise LaneMapError(f"free area {area.name} is also a unit")
             units[area.name] = list(area.gates)
@@ -391,6 +395,12 @@ class LaneMap:
             if any(_segment_distance(a[:2], a[2:], b[:2], b[2:]) < clearance_m
                    for a in mine for b in segments):
                 found.add(zone)
+        for area in self.free_areas.values():
+            polygon = area.polygon
+            if any(_inside_polygon(*a[:2], polygon) or _inside_polygon(*a[2:], polygon)
+                   or any(_segment_distance(a[:2], a[2:], p, q) < clearance_m
+                          for p, q in _polygon_edges(polygon)) for a in mine):
+                found.add(area.name)
         return found
 
     # ---- conflict pairs -----------------------------------------------------------------------
@@ -406,6 +416,8 @@ class LaneMap:
         lanes = list(self.lanes.values())
         for i, one in enumerate(lanes):
             for other in lanes[i + 1:]:
+                if (one.a, one.b) in self.free_lanes or (other.a, other.b) in self.free_lanes:
+                    continue  # 가상 레인은 바닥 안이다. 바깥과의 거리는 아래 다각형 검사가 본다
                 zone_a, zone_b = self.zone_of[one.b], self.zone_of[other.b]
                 if zone_a != zone_b and self._too_close(one, other, clearance_m, release_m):
                     pairs.add(frozenset({zone_a, zone_b}))
@@ -414,7 +426,20 @@ class LaneMap:
                 zone = self.zone_of[lane.b]
                 if zone != area.name and self._near_area(lane, area, clearance_m, release_m):
                     pairs.add(frozenset({zone, area.name}))
+        areas = list(self.free_areas.values())
+        for i, one in enumerate(areas):
+            for other in areas[i + 1:]:
+                if self._polygons_near(one.polygon, other.polygon, clearance_m):
+                    pairs.add(frozenset({one.name, other.name}))
         return pairs
+
+    @staticmethod
+    def _polygons_near(one, other, clearance: float) -> bool:
+        if any(_inside_polygon(*p, other) for p in one) or any(
+                _inside_polygon(*p, one) for p in other):
+            return True
+        return any(_segment_distance(a, b, p, q) < clearance
+                   for a, b in _polygon_edges(one) for p, q in _polygon_edges(other))
 
     def _near_area(self, lane: Lane, area: FreeArea, clearance: float, release: float) -> bool:
         """레인이 자유 구역 바닥에 clearance보다 가깝다. 출입구에서 나가는 레인은 앞 release를 뺀다.

@@ -27,7 +27,8 @@ class TrafficReleaseFloor:
                 f"that zone, or the zone is never released: {', '.join(bad)}")
 
     def _clear_of_floor(self, m: _Mission, zone: str, lane: tuple) -> bool:
-        if not self.params.release_clear_of_floor:
+        # 자유 구역(버전 2)은 다각형 바닥이라 이 값이 없던 기록에서도 바닥을 본다
+        if not self.params.release_clear_of_floor and zone not in self.site.free_areas:
             return True
         gap = self.site.floor_gap(zone, lane, m.x, m.y)
         return gap >= self.params.release_distance_m

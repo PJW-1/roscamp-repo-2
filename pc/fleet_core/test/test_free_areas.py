@@ -6,9 +6,12 @@
 지금과 똑같다.
 """
 import copy
+from pathlib import Path
 
 import pytest
 from fleet_core.traffic.lane_map import LaneMap, LaneMapError, load_lane_map
+
+MAPS = Path(__file__).resolve().parents[3] / "sim" / "fake_robots" / "maps"
 
 # 서쪽 레인 W0->G1, 광장(1.0~2.0 x 0.5~1.5), 동쪽 레인 G2->E0, 아래위로 도는 길 E0->S->W0,
 # E0->N->W0. 도는 길은 광장 모서리에서 0.23 m 떨어진다
@@ -111,3 +114,38 @@ def test_bad_free_areas_are_refused(change, message):
 def test_maps_without_free_areas_have_none():
     s = load_lane_map()
     assert s.free_areas == {} and s.free_lanes == frozenset()
+
+
+def test_a_chord_inside_the_area_does_not_conflict_with_a_lane_leaving_a_gate():
+    """가상 레인은 바닥 안에 있으니 바깥 레인과의 거리는 다각형이 본다(출입구 앞 release 제외).
+
+    특징 광장 지도: T1-T2 가상 레인은 G4에서 0.1 m 위를 지나지만 G4->P-1은 G4에서 나가는 레인이다.
+    """
+    s = load_lane_map(MAPS / "feature_map_free.yaml")
+    assert ("T1", "T2") in s.free_lanes
+    assert frozenset({"PLAZA", "P-1"}) not in s.conflict_pairs(0.16, 0.2)
+
+
+def test_a_gate_cannot_be_in_a_two_way_bundle():
+    data = copy.deepcopy(BASE)
+    data["lanes"] = [lane for lane in data["lanes"] if lane != {"from": "W0", "to": "G1"}]
+    data["two_way"] = {"WEST": ["W0", "G1"]}
+    with pytest.raises(LaneMapError, match="two_way"):
+        LaneMap(data)
+
+
+def test_overlapping_areas_conflict():
+    """두 다각형이 겹치면 출입구와 가상 레인이 서로 멀어도 충돌 쌍이다."""
+    data = copy.deepcopy(BASE)
+    data["waypoints"] += [{"id": "H1", "x": 3.0, "y": 2.0}, {"id": "H2", "x": 2.4, "y": 2.2}]
+    data["lanes"] += [{"from": "N", "to": "H2"}, {"from": "H1", "to": "E0"}]
+    data["free_areas"]["YARD"] = {"polygon": [[1.8, 1.4], [3.0, 1.4], [3.0, 2.2], [1.8, 2.2]],
+                                  "gates": ["H1", "H2"]}
+    pairs = site(data).conflict_pairs(0.16, 0.2)
+    assert frozenset({"PLAZA", "YARD"}) in pairs
+
+
+def test_a_temporary_zone_over_the_area_floor_conflicts_with_the_area():
+    s = site()
+    s.add_temp_zone("TMP", [(1.4, 0.6), (1.6, 0.6)])  # 바닥 안, 가상 레인 G1-G2에서 0.4 m
+    assert "PLAZA" in s.temp_zone_conflicts("TMP", clearance_m=0.16)

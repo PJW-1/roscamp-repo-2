@@ -1,0 +1,68 @@
+# 특징 지도 + 가운데 광장 (버전 2 F절, 2026-11-09). 자유 구역 개발용. 원래 feature_map.yaml은 그대로다.
+#  - feature_map의 좁은 양방향 통로 TUN(T1-T2) 자리를 광장 PLAZA(1.0~2.0 x 0.5~0.85)로 바꿨다.
+#  - 광장 출입구 4개: T1(서), T2(동), G3(북, F1에서 들어옴), G4(남, 대기 줄로 나감).
+#    출입구는 모두 PLAZA 잠금 단위 하나에 든다. 광장 안 경로는 로봇 planner가 낸다(F-1, 한 번에 한 대).
+#  - 대기 줄 입구는 F1->P-1 대신 F1->G3, 광장, G4->P-1. 노드 없는 교차는 없어졌다.
+#
+#        W ---> E0 ---> E1 ---> E2 ---> O                  E: 동쪽행
+#        ^                              |  ^
+#        |   F2 <--- F1 <--- F0 <-------+  |               F: 서쪽행
+#        |   |       |        |            |
+#       QW <-T1 [ G3 PLAZA     ]T2 ------> QO
+#        ^          G4
+#        +--- P-3 <-- P-2 <-- P-1                          대기 줄
+half_width_m: 0.05    # 추정: 레인에서 이 거리까지는 레인 위로 친다
+lane_entry_m: 0.25    # 레인 바닥이 시작되는 거리
+origin_m: [0.0, 0.0]
+bundle_two_way: true  # 양방향 쌍은 잠금 하나(이 지도에는 없다)
+waypoints:
+  - {id: W, x: 0.70, y: 1.325}     # WORK 도크
+  - {id: QW, x: 0.60, y: 0.90}     # WORK 앞 대기 지점
+  - {id: E0, x: 1.00, y: 1.50}     # 동쪽행 레인
+  - {id: E1, x: 1.35, y: 1.50}
+  - {id: E2, x: 1.70, y: 1.50}
+  - {id: O, x: 2.00, y: 1.325}     # OUTBOUND 도크
+  - {id: QO, x: 2.40, y: 0.90}     # OUTBOUND 앞 대기 지점
+  - {id: F0, x: 1.70, y: 1.15}     # 서쪽행 레인
+  - {id: F1, x: 1.35, y: 1.15}     # 갈림: 계속 서쪽, 또는 대기 줄로
+  - {id: F2, x: 1.00, y: 1.15}     # 갈림: 도크 앞, 또는 좁은 통로로
+  - {id: T1, x: 1.00, y: 0.60}     # 광장 서쪽 출입구
+  - {id: T2, x: 2.00, y: 0.60}     # 광장 동쪽 출입구
+  - {id: G3, x: 1.35, y: 0.85}     # 광장 북쪽 출입구
+  - {id: G4, x: 1.35, y: 0.50}     # 광장 남쪽 출입구
+  - {id: P-1, x: 1.35, y: 0.25}    # 대기 칸, 주행 순서대로
+  - {id: P-2, x: 0.80, y: 0.25}
+  - {id: P-3, x: 0.30, y: 0.40}
+lanes:
+  # ---- 넓은 길 ----
+  - {from: W, to: E0}
+  - {from: E0, to: E1}
+  - {from: E1, to: E2}
+  - {from: E2, to: O}
+  - {from: O, to: F0}
+  - {from: F0, to: F1}
+  - {from: F1, to: F2}
+  - {from: F2, to: W}
+  # ---- 광장으로 드나드는 길 ----
+  - {from: F2, to: T1}
+  - {from: T1, to: QW}
+  - {from: F0, to: T2}
+  - {from: T2, to: QO}
+  - {from: QW, to: W}
+  - {from: QO, to: O}
+  # ---- 대기 줄: F1에서 광장을 지나 내려가 도크 앞으로 돌아온다 ----
+  - {from: F1, to: G3}
+  - {from: G4, to: P-1}
+  - {from: P-1, to: P-2}
+  - {from: P-2, to: P-3}
+  - {from: P-3, to: QW}
+stations:
+  WORK: {dock: W, queue: [[QW, W]], commit: W, server: workcell, arms: [arm1, arm2], action: fill}
+  OUTBOUND: {dock: O, queue: [[QO, O]], commit: O, server: arm3, arms: [arm3], action: swap}
+# 주행 순서대로. 대기 로봇은 가장 깊은 빈 곳으로 가므로 먼저 온 로봇이 먼저 나간다.
+parking: [P-1, P-2, P-3]
+free_areas:
+  PLAZA:
+    polygon: [[1.00, 0.50], [2.00, 0.50], [2.00, 0.85], [1.00, 0.85]]
+    gates: [T1, T2, G3, G4]
+    cell_m: 0.35  # 제안: F-2에서 칸으로 나눌 크기

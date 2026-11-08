@@ -87,3 +87,10 @@ def test_a_temporary_zone_needs_two_points_and_a_new_name():
         site.add_temp_zone("AVENUE", [(1.0, 1.0), (1.2, 1.0)])
     with pytest.raises(ValueError):
         site.remove_temp_zone("AVENUE")
+
+
+def test_conflicts_given_as_a_one_shot_iterable_are_all_kept():
+    z = locks()
+    z.add_zone("T1", conflicts=iter(["B"]))
+    z.request("r1", "T1")
+    assert not z.request("r2", "B")

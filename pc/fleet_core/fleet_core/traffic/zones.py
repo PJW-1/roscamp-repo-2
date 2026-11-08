@@ -28,6 +28,7 @@ class ZoneLocks:
         """실행 중에 구역을 더한다(버전 2 V2-0, 임시 구역). conflicts는 함께 쥐면 안 되는 구역."""
         if zone in self._holder:
             raise ValueError(f"zone {zone} already exists")
+        conflicts = tuple(conflicts)
         unknown = [other for other in conflicts if other not in self._holder]
         if unknown:
             raise ValueError(f"zone {zone}: unknown conflict zones {unknown}")
