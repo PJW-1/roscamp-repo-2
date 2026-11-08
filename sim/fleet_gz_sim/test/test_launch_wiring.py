@@ -308,6 +308,36 @@ def test_the_real_fleet_manager_runs_with_fake_central_and_arms_on_gazebo_time(m
          "fake_central_node", "scenario_monitor_node"])  # 가짜 핑키와 sim_clock은 없다
     for n in fakes:
         assert params(n)["use_sim_time"] is True and params(n)["scenario_file"] == str(path)
+    assert params(fleet)["map_file"] == "", "지도가 없는 시나리오는 기본 지도"
+
+
+def test_a_scenario_with_its_own_map_gives_that_map_to_the_fleet(made):
+    """버전 2 F-2 Gazebo 확인: 시나리오의 `map:`(광장 지도)을 관제, 가짜들, 주행 지표가 함께 쓴다.
+    월드와 Nav2 지도는 그대로 lane_arena다(벽과 상자만 있고 지도는 그 안에 든다)."""
+    from ament_index_python.packages import get_package_share_directory
+    from fleet_gz_sim.fleet_setup import load
+    path = (Path(get_package_share_directory("fake_robots")) / "scenarios"
+            / "free_area_crossing.yaml")
+    actions = made.fleet(str(path), ROBOTS, result_dir="out", monitor=True)
+    [fleet] = nodes(actions, "fleet_manager_node")
+    assert params(fleet)["map_file"].endswith("feature_map_crossing.yaml")
+    for n in nodes(actions):
+        if n.kw["package"] == "fake_robots":
+            assert params(n)["map_file"] == params(fleet)["map_file"]
+    [check] = nodes(actions, "fleet_check")
+    assert params(check)["lane_map"] == params(fleet)["map_file"]
+    site, _ = load(str(path))
+    assert "GNE" in site.zone_of, "출발 자세도 시나리오 지도에서 잰다"
+
+
+def test_the_stand_in_and_the_fleet_view_get_the_scenario_map_too(made):
+    actions = run(made, scenario="free_area_crossing", sim_dock_stub="true")
+    [stand_in] = nodes(actions, "sim_stand_in")
+    assert params(stand_in)["map_file"].endswith("feature_map_crossing.yaml")
+    [view] = nodes(actions, "fleet_view")
+    assert params(view)["lane_map"] == params(stand_in)["map_file"]
+    default = run(made)
+    assert params(nodes(default, "sim_stand_in")[0])["map_file"] == ""
 
 
 def test_scenarios_the_arena_cannot_run_start_nothing(made):

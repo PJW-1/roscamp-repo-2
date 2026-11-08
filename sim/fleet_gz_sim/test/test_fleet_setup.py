@@ -28,6 +28,13 @@ def test_pinkys_start_on_their_scenario_waypoints_facing_along_the_lane_in():
     assert poses["pinky3"] == pytest.approx((0.35, 1.95, math.pi / 2))  # P-3 → P-4, 북쪽
 
 
+def test_a_scenario_with_its_own_map_places_pinkys_on_that_map():
+    """free_area_crossing은 feature_map_crossing을 쓴다(버전 2 F-2). 시작 지점도 그 지도에서."""
+    site, scenario = load(scenario_path("free_area_crossing", share()))
+    assert "PLAZA" in site.free_areas
+    assert start_poses(site, scenario)["pinky1"][:2] == pytest.approx((1.10, 0.55))  # P-3
+
+
 def test_a_scenario_with_robot_faults_is_refused():
     """로봇 고장(stuck 등)은 가짜 핑키가 일으킨다. 진짜 pinky_fsm에는 일으킬 곳이 없다."""
     with pytest.raises(ScenarioUnfit, match="stuck"):

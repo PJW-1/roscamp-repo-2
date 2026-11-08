@@ -73,8 +73,11 @@ def fleet(scenario_file: str, robots: list[str], result_dir: str, monitor: bool,
           params_file: str = "", obstacles_file: str = "", check: bool = True) -> list:
     """진짜 관제와 가짜 작업셀·비전·출고 팔·central·모니터, 장애물(있으면). 모두 Gazebo 시계."""
     from fake_robots.common import split_fake_arms
+    from fake_robots.scenario import scenario_map_file
     from fleet_core.traffic.lane_map import load_lane_map
-    common = {"use_sim_time": True, "scenario_file": scenario_file}
+    # 시나리오의 `map:`(없으면 기본 지도). 월드와 Nav2 지도는 lane_arena 그대로다(버전 2 F-2)
+    map_file = scenario_map_file(scenario_file)
+    common = {"use_sim_time": True, "scenario_file": scenario_file, "map_file": map_file}
 
     def fake(executable, name, **extra):
         return Node(package="fake_robots", executable=executable, name=name, output="screen",
@@ -83,8 +86,8 @@ def fleet(scenario_file: str, robots: list[str], result_dir: str, monitor: bool,
     actions = [Node(package="fleet_manager", executable="fleet_manager_node", name="fleet_manager",
                     output="screen",
                     parameters=[{"use_sim_time": True, "robots": robots,
-                                 "params_file": params_file}])]
-    workcell, vision_arms, swap_arms = split_fake_arms(ARMS, load_lane_map(None))
+                                 "params_file": params_file, "map_file": map_file}])]
+    workcell, vision_arms, swap_arms = split_fake_arms(ARMS, load_lane_map(map_file or None))
     if workcell:
         actions.append(fake("fake_workcell_node", "fake_workcell"))
     actions += [fake("fake_vision_node", f"fake_vision_{arm}", arm_id=arm) for arm in vision_arms]
@@ -101,7 +104,7 @@ def fleet(scenario_file: str, robots: list[str], result_dir: str, monitor: bool,
         # recovery_probe는 같은 프로세스에서 돈다(DDS 참여자를 아낀다)
         actions.append(Node(package="fleet_gz_sim", executable="fleet_check", name="fleet_check",
                             output="screen",
-                            parameters=[{**probe, "recovery_probe": True,
+                            parameters=[{**probe, "recovery_probe": True, "lane_map": map_file,
                                          "output": str(Path(result_dir) / "fleet_check.json")}]))
     else:
         actions.append(Node(package="fleet_gz_sim", executable="recovery_probe",
@@ -153,12 +156,15 @@ def _start(context):
                                       nav_log_level=value("nav_log_level"),
                                       rviz=robot == value("rviz"), dock_aside=stub,
                                       nav_composition=composed)
+    from fake_robots.scenario import scenario_map_file
+    map_file = scenario_map_file(scenario_file)
     if value("rviz") == "fleet":
-        actions += fleet_rviz(robots)
+        actions += fleet_rviz(robots, lane_map=map_file)
     actions.append(Node(package="fleet_gz_sim", executable="sim_stand_in", name="sim_stand_in",
                         output="screen",
                         parameters=[{"use_sim_time": True, "robots": robots,
-                                     "scenario_file": scenario_file, "dock_stub": stub}]))
+                                     "scenario_file": scenario_file, "map_file": map_file,
+                                     "dock_stub": stub}]))
     wait = Node(package="fleet_gz_sim", executable="wait_ready", name="wait_ready",
                 output="screen", parameters=[{"robots": robots}])
     monitor = flag(value("monitor"), "monitor")
