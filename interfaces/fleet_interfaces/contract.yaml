@@ -1,6 +1,9 @@
 # 이름, 타입, QoS의 유일한 기준. 코드는 `key`로 찾으므로 이름이나 QoS는 여기만 고친다.
 # 팀 합의 전까지 모두 초안이다. QoS depth는 실제 Wi-Fi에서 측정해야 한다.
-version: 0.5-draft
+version: 0.6-draft
+# 0.6 (2026-11-09, 제안(팀 합의 전)): 액션 /{pinky}/compute_path_to_pose(nav2 planner_server)를 더했다.
+# 자유 구역(광장)이 있는 지도에서만 관제가 부른다. 입구에서 출구까지(use_start) 경로를 받아 바닥 안이면
+# MoveTo path에 넣는다. 답이 없거나 바닥 밖이면 출입구 사이 직선으로 간다. FMS 개선 계획 버전 2 F-1.
 # 0.5 (2026-11-09, 제안): RobotState.state에 RECOVERING(핑키 FSM의 짧은 후진 자가 복구)을 더했다.
 # 관제는 MOVING처럼 보되 막힘 시계와 멈춤 감시를 쉬고, SELF_RECOVERY와 SELF_RECOVERY_END를 낸다.
 # /fleet/robots fault의 RECOVERING(관제가 로봇을 확인하는 중)과 이름만 같다. 핑키 계약 4절.
@@ -52,6 +55,8 @@ actions:
   - {key: navigate_to_pose, name: "/{pinky}/navigate_to_pose", type: nav2_msgs/action/NavigateToPose, real_only: true}
   # path 모드에서 핑키가 레인 폴리라인을 따를 때 쓴다. 관제는 부르지 않는다.
   - {key: follow_path, name: "/{pinky}/follow_path", type: nav2_msgs/action/FollowPath, real_only: true}
+  # 0.6(제안): 자유 구역 안 경로. 실물은 Nav2 planner_server, 가짜 로봇은 상자를 비켜 가는 가짜 계산.
+  - {key: compute_path_to_pose, name: "/{pinky}/compute_path_to_pose", type: nav2_msgs/action/ComputePathToPose}
 
 services:
   - {key: set_run_mode, name: "/central/set_run_mode", type: fleet_interfaces/srv/SetRunMode}

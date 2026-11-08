@@ -820,3 +820,52 @@ def test_without_attempts_a_nav_abort_ends_the_goal_at_once(harness, tmp_path):
     assert time.monotonic() - sent < 0.6
     time.sleep(0.3)
     assert RECOVERING not in states_since(p, sent)
+
+
+def _plan(p, start_xy, goal_xy):
+    from geometry_msgs.msg import PoseStamped
+    from nav2_msgs.action import ComputePathToPose
+    client = ActionClient(p.node, ComputePathToPose,
+                          CONTRACT_OBJ.name("compute_path_to_pose", pinky="pinky1"))
+    assert client.wait_for_server(10.0)
+    goal = ComputePathToPose.Goal(use_start=True, start=PoseStamped(), goal=PoseStamped())
+    goal.start.pose.position.x, goal.start.pose.position.y = start_xy
+    goal.goal.pose.position.x, goal.goal.pose.position.y = goal_xy
+    fut = client.send_goal_async(goal)
+    assert wait_until(fut.done, 5.0) and fut.result().accepted
+    return result_of(fut.result())
+
+
+def test_the_path_action_goes_round_a_box_of_the_scenario(harness, tmp_path):
+    """버전 2 F-1(계약 0.6-draft 제안): Nav2 planner_server 대신 상자를 비켜 가는 가짜 계산."""
+    from pathlib import Path
+
+    from action_msgs.msg import GoalStatus
+    from nav2_msgs.action import ComputePathToPose
+    free_map = str(Path(__file__).resolve().parents[1] / "maps" / "feature_map_free.yaml")
+    robots = {f"pinky{i}": {"start": f"P-{i}", "speed_mps": 1.0, "pose_noise_m": 0.0}
+              for i in (1, 2, 3)}
+    p = start(harness, tmp_path, node={"map_file": free_map}, robots=robots,
+              boxes=[{"x": 1.35, "y": 0.675, "size_m": 0.06}, {"x": 1.5, "y": 0.6, "size_m": 0.3}])
+    done = _plan(p, (1.35, 0.85), (1.35, 0.5))
+    # 두 번째 상자가 광장 가운데를 막아 G3-G4 길도 못 찾는다
+    assert done.status == GoalStatus.STATUS_ABORTED
+    assert done.result.error_code == ComputePathToPose.Result.NO_VALID_PATH
+    assert list(done.result.path.poses) == []
+
+
+def test_the_path_action_answers_a_free_crossing(harness, tmp_path):
+    from pathlib import Path
+
+    from action_msgs.msg import GoalStatus
+    free_map = str(Path(__file__).resolve().parents[1] / "maps" / "feature_map_free.yaml")
+    robots = {f"pinky{i}": {"start": f"P-{i}", "speed_mps": 1.0, "pose_noise_m": 0.0}
+              for i in (1, 2, 3)}
+    p = start(harness, tmp_path, node={"map_file": free_map}, robots=robots,
+              boxes=[{"x": 1.35, "y": 0.675, "size_m": 0.06}])
+    done = _plan(p, (1.35, 0.85), (1.35, 0.5))
+    assert done.status == GoalStatus.STATUS_SUCCEEDED
+    points = [(q.pose.position.x, q.pose.position.y) for q in done.result.path.poses]
+    assert points[0] == pytest.approx((1.35, 0.85)) and points[-1] == pytest.approx((1.35, 0.5))
+    assert min(math.dist(q, (1.35, 0.675)) for q in points) >= 0.03 + 0.12 - 1e-6
+    assert done.result.path.header.frame_id == "map"

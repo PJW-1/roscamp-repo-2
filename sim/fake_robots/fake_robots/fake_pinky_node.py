@@ -1,4 +1,8 @@
-"""FakePinky: robot_state, move_to, dock을 가진 가짜 이동 로봇. 일정대로 고장을 낸다."""
+"""FakePinky: robot_state, move_to, dock을 가진 가짜 이동 로봇. 일정대로 고장을 낸다.
+
+compute_path_to_pose(버전 2 F-1, 계약 0.6-draft 제안)는 Nav2 planner_server 대신 시나리오의
+상자(boxes)를 비켜 가는 가짜 계산(planner.py)으로 답한다.
+"""
 from __future__ import annotations
 
 import random
@@ -10,7 +14,8 @@ import rclpy
 from fleet_core.common.contract import to_ros_qos
 from fleet_interfaces.action import Dock, MoveTo
 from fleet_interfaces.msg import RobotState
-from geometry_msgs.msg import Pose2D
+from geometry_msgs.msg import Pose2D, PoseStamped
+from nav2_msgs.action import ComputePathToPose
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
@@ -36,6 +41,7 @@ from fake_robots.motion import (
     noisy_pose,
     path_gap,
 )
+from fake_robots.planner import plan_path
 from fake_robots.recovery import ObstacleRecovery, RecoveryParams
 
 NAV_ABORT_DELAY_S = 0.2  # 해제 거리(0.2 m)를 지나기 전, 관제가 선을 늘리기 전에 중단한다
@@ -85,6 +91,7 @@ class FakePinkyNode(Node):
         self._reports = DelayLine(cfg.report_delay_s)
         self._off_course = (site.origin[0] - OFF_COURSE_M, site.origin[1] - OFF_COURSE_M)
         self._site = site
+        self._boxes = scenario.boxes
         self._removed = False
         # 앞 물체와 자기 복구(제안). 값은 노드 파라미터로 바꾼다(recovery_attempts 0: 복구 없음)
         self._recovery = ObstacleRecovery(RecoveryParams(**{
@@ -124,6 +131,9 @@ class FakePinkyNode(Node):
             MoveTo, contract.name("move_to", pinky=self.robot_id), "move", group)
         self._dock_server = self._server(
             Dock, contract.name("dock", pinky=self.robot_id), "dock", group)
+        self._plan_server = ActionServer(
+            self, ComputePathToPose, contract.name("compute_path_to_pose", pinky=self.robot_id),
+            execute_callback=self._plan, callback_group=group)
         self.create_timer(1.0 / CONTROL_RATE_HZ, self._tick)
         self.create_timer(1.0 / float(self.get_parameter("state_rate_hz").value),
                           self._publish_state)
@@ -146,7 +156,36 @@ class FakePinkyNode(Node):
         self.stop()
         self._move_server.destroy()
         self._dock_server.destroy()
+        self._plan_server.destroy()
         return super().destroy_node()
+
+    def _plan(self, goal_handle):
+        """경로 계산. 시작과 목표가 같이 든 자유 구역이 있으면 그 바닥 안으로만 비켜 간다."""
+        request = goal_handle.request
+        goal = (request.goal.pose.position.x, request.goal.pose.position.y)
+        with self._lock:
+            here = (self._motion.x, self._motion.y)
+        start = here
+        if request.use_start:
+            start = (request.start.pose.position.x, request.start.pose.position.y)
+        polygon = next((list(area.polygon) for name, area in self._site.free_areas.items()
+                        if not self._site.free_path_outside(name, [start])
+                        and not self._site.free_path_outside(name, [goal])), None)
+        points = plan_path(start, goal, self._boxes, polygon=polygon)
+        result = ComputePathToPose.Result()
+        result.path.header.frame_id = "map"
+        if points is None:
+            result.error_code = ComputePathToPose.Result.NO_VALID_PATH
+            result.error_msg = "no way round the boxes"
+            goal_handle.abort()
+            return result
+        for x, y in points:
+            pose = PoseStamped()
+            pose.header.frame_id = "map"
+            pose.pose.position.x, pose.pose.position.y = x, y
+            result.path.poses.append(pose)
+        goal_handle.succeed()
+        return result
 
     def _running(self) -> bool:
         return self._alive and rclpy.ok()

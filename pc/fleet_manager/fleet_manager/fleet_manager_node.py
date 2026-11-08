@@ -18,6 +18,7 @@ from fleet_core.common.commands import (
     EventOut,
     FillCmd,
     MoveCmd,
+    PlanCmd,
     ReportOrderCmd,
     SwapCmd,
 )
@@ -35,6 +36,7 @@ from fleet_interfaces.msg import (
     ZoneStateArray,
 )
 from fleet_interfaces.srv import ConfirmClear, Reinstate, ReportOrder
+from nav2_msgs.action import ComputePathToPose
 from rclpy.action import ActionClient
 from rclpy.clock import Clock, ClockType
 from rclpy.node import Node
@@ -114,12 +116,16 @@ class FleetManagerNode(Node):
             OrderBoard, name("order_board"), self._on_order_board, self._qos("order_board"))
         self._move = {}
         self._dock = {}
+        self._plan = {}
         for robot in robots:
             self.create_subscription(
                 RobotState, name("robot_state", pinky=robot),
                 partial(self._on_robot_state, robot), self._qos("robot_state"))
             self._move[robot] = ActionClient(self, MoveTo, name("move_to", pinky=robot))
             self._dock[robot] = ActionClient(self, Dock, name("dock", pinky=robot))
+            if self.site.free_areas:  # 자유 구역이 있는 지도만(버전 2 F-1, 계약 0.6-draft 제안)
+                self._plan[robot] = ActionClient(self, ComputePathToPose,
+                                                 name("compute_path_to_pose", pinky=robot))
         self._fill = {}
         self._swap = {}
         for station in self.site.stations.values():
@@ -236,6 +242,8 @@ class FleetManagerNode(Node):
         elif isinstance(command, SwapCmd):
             self._send(self._swap[command.station_id], adapters.swap_goal(command),
                        (command.arm, command.goal_id), self._swap_done, self._swap_rejected)
+        elif isinstance(command, PlanCmd):
+            self._send_plan(command)
         elif isinstance(command, CancelCmd):
             self._goals.cancel((command.robot, command.goal_id), now)
         elif isinstance(command, ReportOrderCmd):
@@ -297,6 +305,34 @@ class FleetManagerNode(Node):
             return
         self._goals.finished(key)
         on_result(key, result)
+
+    # 경로 계산은 취소도 재시도도 없다. 답이 없으면 코어가 free_plan_wait_s 뒤 직선으로 간다
+    def _send_plan(self, cmd) -> None:
+        client = self._plan.get(cmd.robot)
+        if client is None or not client.server_is_ready():
+            self.core.on_plan_result(cmd.robot, cmd.plan_id, None)
+            return
+        future = client.send_goal_async(adapters.plan_goal(cmd))
+        future.add_done_callback(partial(self._plan_response, cmd.robot, cmd.plan_id))
+
+    def _plan_response(self, robot, plan_id, future) -> None:
+        try:
+            handle = future.result()
+        except Exception as exc:
+            self.get_logger().error(f"path request {plan_id} of {robot} failed to send: {exc}")
+            handle = None
+        if handle is None or not handle.accepted:
+            self.core.on_plan_result(robot, plan_id, None)
+            return
+        handle.get_result_async().add_done_callback(partial(self._plan_done, robot, plan_id))
+
+    def _plan_done(self, robot, plan_id, future) -> None:
+        try:
+            points = adapters.plan_points(future.result())
+        except Exception as exc:
+            self.get_logger().error(f"path request {plan_id} of {robot} lost its result: {exc}")
+            points = None
+        self.core.on_plan_result(robot, plan_id, points)
 
     def _robot_rejected(self, key) -> None:
         self.core.on_goal_rejected(key[0], key[1])

@@ -22,7 +22,8 @@ from fleet_interfaces.msg import (
     ZoneStateArray,
 )
 from fleet_interfaces.srv import ReportOrder
-from geometry_msgs.msg import Pose
+from geometry_msgs.msg import Pose, PoseStamped
+from nav2_msgs.action import ComputePathToPose
 
 SOURCE = "fleet_manager"
 REASON_OF_STATUS = {
@@ -169,6 +170,31 @@ def move_goal(cmd) -> MoveTo.Goal:
         pose.orientation.z, pose.orientation.w = math.sin(yaw / 2), math.cos(yaw / 2)
         goal.path.append(pose)
     return goal
+
+
+def _map_pose(x: float, y: float, yaw: float) -> PoseStamped:
+    pose = PoseStamped()
+    pose.header.frame_id = "map"
+    pose.pose.position.x, pose.pose.position.y = float(x), float(y)
+    pose.pose.orientation.z, pose.pose.orientation.w = math.sin(yaw / 2), math.cos(yaw / 2)
+    return pose
+
+
+def plan_goal(cmd) -> ComputePathToPose.Goal:
+    """자유 구역 경로 계산(버전 2 F-1, 계약 0.6-draft 제안). 로봇 자리가 아니라 입구에서 잰다."""
+    start_yaw = math.atan2(cmd.goal_y - cmd.start_y, cmd.goal_x - cmd.start_x)
+    return ComputePathToPose.Goal(goal=_map_pose(cmd.goal_x, cmd.goal_y, cmd.goal_yaw),
+                                  start=_map_pose(cmd.start_x, cmd.start_y, start_yaw),
+                                  use_start=True)
+
+
+def plan_points(response) -> list[tuple[float, float]] | None:
+    """경로 계산 결과의 점들. 성공이 아니거나 오류 코드가 있거나 비었으면 None."""
+    result = response.result
+    if (response.status != GoalStatus.STATUS_SUCCEEDED
+            or result.error_code != ComputePathToPose.Result.NONE or not result.path.poses):
+        return None
+    return [(p.pose.position.x, p.pose.position.y) for p in result.path.poses]
 
 
 def dock_goal(cmd) -> Dock.Goal:

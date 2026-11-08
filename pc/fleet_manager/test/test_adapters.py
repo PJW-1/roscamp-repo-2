@@ -14,6 +14,7 @@ from fleet_core.common.commands import (  # noqa: E402
     FillCmd,
     MoveCmd,
     OrderRecord,
+    PlanCmd,
     ReportOrderCmd,
     RobotStatusView,
     SwapCmd,
@@ -41,6 +42,8 @@ from fleet_interfaces.srv import (
     ReportOrder,  # noqa: E402
 )
 from fleet_manager import adapters  # noqa: E402
+from geometry_msgs.msg import PoseStamped  # noqa: E402
+from nav2_msgs.action import ComputePathToPose  # noqa: E402
 
 
 def test_time_splits_seconds_and_nanoseconds():
@@ -286,3 +289,39 @@ def test_a_refused_clear_carries_its_reason():
     assert response.accepted is False and response.reason == "no such zone"
     accepted = adapters.confirm_clear_response(ConfirmClear.Response(), ["P-6"], "")
     assert accepted.accepted is True and accepted.reason == ""
+
+
+# ---- free-area path (version 2 F-1, contract 0.6-draft proposal) ----------------------------
+
+
+def test_a_plan_goal_asks_from_gate_to_gate_in_the_map_frame():
+    goal = adapters.plan_goal(PlanCmd("pinky1", 9, "PLAZA", 1.35, 0.85, 1.35, 0.5, -math.pi / 2))
+    assert goal.use_start, "from the gate, not from where the robot stands now"
+    assert goal.start.header.frame_id == goal.goal.header.frame_id == "map"
+    assert (goal.start.pose.position.x, goal.start.pose.position.y) == (1.35, 0.85)
+    assert (goal.goal.pose.position.x, goal.goal.pose.position.y) == (1.35, 0.5)
+    q = goal.goal.pose.orientation
+    assert (q.z, q.w) == pytest.approx((math.sin(-math.pi / 4), math.cos(-math.pi / 4)))
+
+
+def _plan_response(points, status=GoalStatus.STATUS_SUCCEEDED, error_code=0):
+    result = ComputePathToPose.Result(error_code=error_code)
+    for x, y in points:
+        pose = PoseStamped()
+        pose.pose.position.x, pose.pose.position.y = x, y
+        result.path.poses.append(pose)
+    return ComputePathToPose.Impl.GetResultService.Response(status=status, result=result)
+
+
+def test_a_plan_result_becomes_points():
+    assert adapters.plan_points(_plan_response([(1.35, 0.85), (1.5, 0.7)])) == [
+        (1.35, 0.85), (1.5, 0.7)]
+
+
+@pytest.mark.parametrize("response", [
+    _plan_response([]),
+    _plan_response([(1.35, 0.85), (1.5, 0.7)], error_code=ComputePathToPose.Result.NO_VALID_PATH),
+    _plan_response([(1.35, 0.85), (1.5, 0.7)], status=GoalStatus.STATUS_ABORTED),
+])
+def test_no_path_an_error_code_or_an_aborted_goal_is_no_path(response):
+    assert adapters.plan_points(response) is None
