@@ -5,7 +5,8 @@
 보낼 때까지 그 자리에 서 있다(AT_STATION).
 
 안전 규칙(각각 테스트가 있다):
-  - 로봇은 현재 구역과 다음 구역 하나까지만 쥐고 그 안에서만 움직인다.
+  - 로봇은 현재 구역과 다음 구역 하나까지만 쥐고 그 안에서만 움직인다(_needed_zones).
+    예외는 빌린 구역(버전 2 1-C)뿐이다.
   - 구역은 연속 보고가 해제 거리만큼 지난 뒤에만 놓는다. 오차 섞인 보고 하나로
     로봇 몸이 아직 붙어 있는 구역을 풀지 않게 한다.
   - 지금 활성 goal이 아닌 goal의 결과는 무시한다.
@@ -684,13 +685,25 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
             self.zones.release(m.name, zone)
             m.outside.pop(zone, None)
 
+    def _needed_zones(self, m: _Mission) -> set:
+        """쥐어도 되는 구역: 현재와 경로상 다음 구역, 그리고 빌린 구역(버전 2 V2-0).
+
+        안전 규칙 "현재 + 다음 구역만"은 여기 한곳에 있다. 빌린 구역은 경로 위에 없어도
+        _release_passed_zones가 놓지 않고, _request_next_zone의 조기 반환도 세지 않는다.
+        """
+        return {zone for zone in self._upcoming(m) if zone} | set(m.borrowed)
+
+    def _holds_ahead(self, m: _Mission, current: str, held) -> bool:
+        """현재 구역과 빌린 구역 말고 쥔 구역이 있다. 있으면 다음 구역을 청하지 않는다."""
+        return any(zone != current and zone not in m.borrowed for zone in held)
+
     def _release_passed_zones(self, m: _Mission) -> None:
         """벗어났고 다음에 필요 없는 구역을 놓는다.
 
         필요한 구역은 현재와 다음 구역뿐이다. 한참 뒤 다시 지날 구역(한 바퀴 도는 로봇은
         Z-X를 두 번 지난다)을 그동안 쥐고 있으면 안 된다.
         """
-        keep = self._upcoming(m)
+        keep = self._needed_zones(m)
         for zone in self.zones.held_by(m.name):
             if zone not in keep:
                 self._release_if_cleared(m, zone)
@@ -921,12 +934,12 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
             self._next_work(m)
 
     def _request_next_zone(self, m: _Mission) -> None:
-        """현재 구역 말고 쥔 것이 없을 때만 다음 구역을 요청한다."""
+        """현재 구역(과 빌린 구역) 말고 쥔 것이 없을 때만 다음 구역을 요청한다."""
         current, following = self._upcoming(m)
         if following is None:
             return
         held = self.zones.held_by(m.name)
-        if following in held or any(zone != current for zone in held):
+        if following in held or self._holds_ahead(m, current, held):
             m.wait_zone = None
             return
         if self._consider_detour(m, following):
