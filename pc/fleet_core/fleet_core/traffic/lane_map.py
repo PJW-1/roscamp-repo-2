@@ -39,6 +39,15 @@ class Station:
 
 
 @dataclass(frozen=True)
+class FreeArea:
+    """넓은 빈 바닥(버전 2 F절). 안에서는 레인 대신 로봇 planner가 만든 경로로 다닌다."""
+    name: str  # 잠금 단위 이름이기도 하다
+    polygon: tuple  # (x, y)들, 닫는 점은 쓰지 않는다
+    gates: tuple  # 출입구 지점. 레인 그래프의 지점이다
+    cell_m: float  # F-2에서 칸으로 나눌 크기
+
+
+@dataclass(frozen=True)
 class Lane:
     a: object  # 시작 지점
     b: object  # 끝 지점
@@ -64,6 +73,18 @@ def _point_segment(x, y, ax, ay, bx, by) -> float:
     denom = vx * vx + vy * vy
     t = max(0.0, min(1.0, ((x - ax) * vx + (y - ay) * vy) / denom)) if denom else 0.0
     return math.hypot(x - (ax + t * vx), y - (ay + t * vy))
+
+
+def _inside_polygon(x, y, polygon) -> bool:
+    inside = False
+    for (ax, ay), (bx, by) in zip(polygon, polygon[1:] + polygon[:1], strict=True):
+        if (ay > y) != (by > y) and x < ax + (y - ay) * (bx - ax) / (by - ay):
+            inside = not inside
+    return inside
+
+
+def _polygon_edges(polygon) -> list[tuple]:
+    return [(a, b) for a, b in zip(polygon, polygon[1:] + polygon[:1], strict=True)]
 
 
 def _segment_distance(a1, a2, b1, b2) -> float:
@@ -94,6 +115,8 @@ class LaneMap:
         two_way = {name: (_waypoint_id(a), _waypoint_id(b))
                    for name, (a, b) in (data.get("two_way") or {}).items()}
         self.lanes = self._build_lanes(data.get("lanes") or [], two_way)
+        self.free_areas = self._free_areas(data.get("free_areas") or {})
+        self.free_lanes = frozenset(self._add_free_lanes())
         self._out: dict = {}
         self._in: dict = {}
         for lane in self.lanes.values():
@@ -104,10 +127,16 @@ class LaneMap:
         self.parking = tuple(self._known(_waypoint_id(c), "parking")
                              for c in data.get("parking") or [])
         self.docks = {s.dock for s in self.stations.values()}
-        self.zones = self._build_zones(data.get("units") or {}, two_way, bundle_two_way)
+        units = dict(data.get("units") or {})
+        for area in self.free_areas.values():
+            if area.name in units:
+                raise LaneMapError(f"free area {area.name} is also a unit")
+            units[area.name] = list(area.gates)
+        self.zones = self._build_zones(units, two_way, bundle_two_way)
         self.zone_of = {waypoint: name for name, members in self.zones.items()
                         for waypoint in members}
         self._segments = {zone: self._zone_segments(zone) for zone in self.zones}
+        self._temp: set = set()  # add_temp_zone으로 더한 구역
         for waypoint in self._pose:
             if waypoint not in self._out and waypoint not in self._in:
                 raise LaneMapError(f"{waypoint} has no lane")
@@ -145,6 +174,60 @@ class LaneMap:
             add(a, b)
             add(b, a)
         return lanes
+
+    def _free_areas(self, raw: dict) -> dict:
+        """free_areas: 이름 -> {polygon, gates, cell_m}. 출입구는 바닥 가장자리(half_width 안)."""
+        areas = {}
+        for name, entry in raw.items():
+            polygon = tuple((float(x), float(y)) for x, y in entry.get("polygon") or [])
+            if len(polygon) < 3:
+                raise LaneMapError(f"free area {name}: the polygon needs three points or more")
+            gates = tuple(self._known(_waypoint_id(g), f"free area {name}")
+                          for g in entry.get("gates") or [])
+            if len(set(gates)) < 2:
+                raise LaneMapError(f"free area {name} needs two gates or more")
+            cell_m = float(entry.get("cell_m", 0.35))
+            if cell_m <= 0.0:
+                raise LaneMapError(f"free area {name}: cell_m must be positive")
+            for gate in gates:
+                x, y = self._pose[gate]
+                if self._polygon_gap(polygon, x, y) > self.half_width:
+                    raise LaneMapError(f"free area {name}: gate {gate} is not on the edge")
+            areas[name] = FreeArea(str(name), polygon, gates, cell_m)
+        return areas
+
+    def _add_free_lanes(self) -> list[tuple]:
+        """출입구 쌍마다 양방향 가상 레인. 비용은 직선 거리, 실제 경로는 로봇 planner가 낸다."""
+        added = []
+        for area in self.free_areas.values():
+            for a in area.gates:
+                for b in area.gates:
+                    if a == b or (a, b) in self.lanes:
+                        continue
+                    (ax, ay), (bx, by) = self._pose[a], self._pose[b]
+                    span = math.hypot(bx - ax, by - ay)
+                    if span <= 0.0:
+                        raise LaneMapError(f"free area {area.name}: gates {a} and {b} coincide")
+                    self.lanes[(a, b)] = Lane(a, b, ax, ay, bx, by, (bx - ax) / span,
+                                              (by - ay) / span, span, span)
+                    added.append((a, b))
+        return added
+
+    @staticmethod
+    def _polygon_gap(polygon, x, y) -> float:
+        """다각형 바닥까지 거리. 안이면 0."""
+        if _inside_polygon(x, y, polygon):
+            return 0.0
+        return min(_point_segment(x, y, *a, *b) for a, b in _polygon_edges(polygon))
+
+    def free_area_of(self, key: tuple) -> str | None:
+        """가상 레인 key가 지나는 자유 구역 이름. 보통 레인이면 None."""
+        if key not in self.free_lanes:
+            return None
+        return self.zone_of[key[1]]
+
+    def inside_free_floor(self, area: str, x: float, y: float) -> bool:
+        return _inside_polygon(x, y, self.free_areas[area].polygon)
 
     def _station(self, name: str, raw: dict) -> Station:
         dock = self._known(_waypoint_id(raw["dock"]), f"station {name}")
@@ -234,9 +317,12 @@ class LaneMap:
         return lane.b
 
     def distance_to_zone(self, x: float, y: float, zone: str) -> float:
-        """자세에서 구역 바닥까지 거리. 안에 있으면 0."""
+        """자세에서 구역 바닥까지 거리. 안에 있으면 0. 자유 구역은 다각형 바닥도 바닥이다."""
         nearest = min(_point_segment(x, y, *segment) for segment in self._segments[zone])
-        return max(0.0, nearest - self.half_width)
+        distance = max(0.0, nearest - self.half_width)
+        if zone in self.free_areas:
+            distance = min(distance, self._polygon_gap(self.free_areas[zone].polygon, x, y))
+        return distance
 
     def _floor_without(self, zone: str, key: tuple) -> list[tuple]:
         """구역 바닥에서 나가는 레인 key의 역방향(양방향 레인)을 뺀 선들."""
@@ -257,7 +343,11 @@ class LaneMap:
 
         예각 θ로 합류하는 레인이 있으면 s만큼 가도 그 레인과는 s·sinθ만 떨어진다.
         """
-        return min(_point_segment(x, y, *segment) for segment in self._floor_without(zone, key))
+        gap = min(_point_segment(x, y, *segment) for segment in self._floor_without(zone, key))
+        if zone in self.free_areas:  # 중심선 기준이라 바닥 거리에 half_width를 더한다
+            gap = min(gap, self._polygon_gap(self.free_areas[zone].polygon, x, y)
+                      + self.half_width)
+        return gap
 
     def exit_floor_gaps(self) -> list[tuple]:
         """구역을 떠나는 레인마다 (a, b, 끝 지점에서 구역의 다른 바닥 선까지 거리)."""
@@ -271,6 +361,37 @@ class LaneMap:
         """단위를 떠나는 가장 짧은 레인 길이. 해제 거리가 이 안에 들어가야 한다."""
         return min((lane.span for (a, b), lane in self.lanes.items()
                     if self.zone_of[a] != self.zone_of[b]), default=math.inf)
+
+    # ---- temporary zones (버전 2 V2-0) ---------------------------------------------------------
+
+    def add_temp_zone(self, name: str, points) -> None:
+        """경로 선(점 둘 이상)을 바닥으로 하는 임시 구역. 지점은 없다. 1-C 비켜 가기용."""
+        if name in self.zones:
+            raise ValueError(f"zone {name} already exists")
+        points = [tuple(float(v) for v in p) for p in points]
+        if len(points) < 2:
+            raise ValueError(f"temporary zone {name} needs two points or more")
+        self.zones[name] = frozenset()
+        self._segments[name] = [(*a, *b) for a, b in zip(points, points[1:], strict=False)]
+        self._temp.add(name)
+
+    def remove_temp_zone(self, name: str) -> None:
+        if name not in self._temp:
+            raise ValueError(f"zone {name} is not a temporary zone")
+        del self.zones[name], self._segments[name]
+        self._temp.discard(name)
+
+    def temp_zone_conflicts(self, name: str, clearance_m: float) -> set[str]:
+        """임시 구역의 바닥 선이 clearance_m(보통 2r)보다 가깝게 지나는 다른 구역들."""
+        mine = self._segments[name]
+        found = set()
+        for zone, segments in self._segments.items():
+            if zone == name:
+                continue
+            if any(_segment_distance(a[:2], a[2:], b[:2], b[2:]) < clearance_m
+                   for a in mine for b in segments):
+                found.add(zone)
+        return found
 
     # ---- conflict pairs -----------------------------------------------------------------------
 
@@ -288,7 +409,27 @@ class LaneMap:
                 zone_a, zone_b = self.zone_of[one.b], self.zone_of[other.b]
                 if zone_a != zone_b and self._too_close(one, other, clearance_m, release_m):
                     pairs.add(frozenset({zone_a, zone_b}))
+        for area in self.free_areas.values():
+            for lane in lanes:
+                zone = self.zone_of[lane.b]
+                if zone != area.name and self._near_area(lane, area, clearance_m, release_m):
+                    pairs.add(frozenset({zone, area.name}))
         return pairs
+
+    def _near_area(self, lane: Lane, area: FreeArea, clearance: float, release: float) -> bool:
+        """레인이 자유 구역 바닥에 clearance보다 가깝다. 출입구에서 나가는 레인은 앞 release를 뺀다.
+
+        출입구로 들어오는 레인은 그 출입구의 단위(= 자유 구역)에 속하므로 여기 오지 않는다.
+        """
+        skip = release if lane.a in area.gates else 0.0
+        if skip >= lane.span:
+            return False
+        a = (lane.ax + lane.ux * skip, lane.ay + lane.uy * skip)
+        b = (lane.bx, lane.by)
+        if _inside_polygon(*a, area.polygon) or _inside_polygon(*b, area.polygon):
+            return True
+        return any(_segment_distance(a, b, p, q) < clearance
+                   for p, q in _polygon_edges(area.polygon))
 
     def _too_close(self, one: Lane, other: Lane, clearance: float, release: float) -> bool:
         if frozenset({one.a, one.b}) == frozenset({other.a, other.b}):

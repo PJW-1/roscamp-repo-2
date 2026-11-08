@@ -22,6 +22,34 @@ class ZoneLocks:
             self._conflicts[other].add(one)
         self._arrivals = 0
         self._arrived: dict[tuple[str, str], int] = {}  # (구역, 로봇) -> 요청 순번
+        self._added: set[str] = set()  # 실행 중에 더한 구역(add_zone). 이것만 지울 수 있다
+
+    def add_zone(self, zone: str, conflicts=()) -> None:
+        """실행 중에 구역을 더한다(버전 2 V2-0, 임시 구역). conflicts는 함께 쥐면 안 되는 구역."""
+        if zone in self._holder:
+            raise ValueError(f"zone {zone} already exists")
+        unknown = [other for other in conflicts if other not in self._holder]
+        if unknown:
+            raise ValueError(f"zone {zone}: unknown conflict zones {unknown}")
+        self._holder[zone] = None
+        self._queue[zone] = []
+        self._acquired_at[zone] = None
+        self._conflicts[zone] = set(conflicts)
+        for other in conflicts:
+            self._conflicts[other].add(zone)
+        self._added.add(zone)
+
+    def remove_zone(self, zone: str) -> bool:
+        """add_zone으로 더한 구역을 지운다. 쥐었거나 기다리는 로봇이 있으면 거절한다."""
+        if zone not in self._added:
+            raise ValueError(f"zone {zone} was not added at run time")
+        if self._holder[zone] is not None or self._queue[zone]:
+            return False
+        for other in self._conflicts.pop(zone):
+            self._conflicts[other].discard(zone)
+        del self._holder[zone], self._queue[zone], self._acquired_at[zone]
+        self._added.discard(zone)
+        return True
 
     def request(self, robot: str, zone: str) -> bool:
         """구역을 요청한다. 로봇과 구역 사이에 아무도 없을 때만 준다."""
