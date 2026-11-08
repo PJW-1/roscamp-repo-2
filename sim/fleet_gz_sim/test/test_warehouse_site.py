@@ -179,6 +179,15 @@ def test_every_blocked_lane_keeps_the_docks_and_the_queue_reachable():
         assert cut_off(one.lane) == [], one.label
 
 
+def test_no_box_stands_on_a_queue_lane():
+    """cut_off reaches the queue at its entrance only. The spots behind it are reached from
+    there along the queue lanes, so no box may stand on a lane that touches a parking spot
+    (Codex review of f4104e5)."""
+    schedule = obstacles.load_schedule(PKG / "obstacles" / "warehouse.yaml", LANES)
+    for one in schedule.obstacles:
+        assert not set(one.lane) & set(LANES.parking), one.label
+
+
 def test_the_check_catches_an_exit_that_leads_nowhere():
     """A small map of its own: T has another exit than H, so the exit test passes, yet a box on
     T->H cuts T off from the dock and the queue."""
