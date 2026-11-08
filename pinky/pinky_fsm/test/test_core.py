@@ -880,6 +880,58 @@ def test_a_second_retreat_while_waiting_still_waits_for_the_follow_path_to_end()
     assert fsm.is_running("r2")
 
 
+def test_a_retreat_during_a_self_recovery_backup_waits_for_that_backup_to_end():
+    """V2 교차 검수 1: 자가 복구 BackUp이 도는 중이면 그 결과가 오고 바퀴가 설 때까지
+    Retreat의 BackUp을 미룬다. 같은 behavior_server라 바로 보내면 앞 후진이 다 서기 전에
+    새 후진이 이어진다."""
+    fsm = ready()
+    (send,) = sends(move(fsm, "g1", 0.0))
+    [b] = backups(stand(fsm, 1.0, STUCK))
+    fsm.nav_result(send.seq, "canceled", 1.5, STUCK, obstacle)  # 자가 복구가 취소한 FollowPath
+    cmds = fsm.retreat("r1", 2.0, 0.3, 0.1)
+    assert Finish("g1", False, CANCELED) in cmds and CancelBackUp() in cmds
+    assert not backups(cmds), "자가 복구 후진이 아직 서지 않았다"
+    fsm.heartbeat(2.1)
+    assert not backups(fsm.tick(2.1, BEHIND, DRIVING, no_obstacle)), "아직 움직인다"
+    fsm.heartbeat(2.2)
+    assert not backups(fsm.tick(2.2, BEHIND, STILL, no_obstacle)), "그 BackUp 결과가 아직 없다"
+    assert fsm.backup_result(b.seq, "canceled", 2.25, BEHIND) == []
+    fsm.heartbeat(2.3)
+    (r,) = backups(fsm.tick(2.3, BEHIND, STILL, no_obstacle))
+    assert r.seq != b.seq and (r.distance_m, r.speed_mps) == (0.3, 0.1)
+    assert fsm.is_running("r1")
+
+
+def test_a_second_retreat_during_a_retreat_backup_waits_for_the_first_backup():
+    fsm = ready()
+    (b1,) = backups(fsm.retreat("r1", 1.0, 0.3, 0.1))
+    cmds = fsm.retreat("r2", 1.5, 0.2, 0.1)
+    assert Finish("r1", False, CANCELED) in cmds and CancelBackUp() in cmds
+    assert not backups(cmds)
+    cmds = fsm.retreat("r3", 1.6, 0.2, 0.1)  # 기다리는 동안 또 바뀌어도 앞 BackUp을 기다린다
+    assert not backups(cmds)
+    fsm.heartbeat(1.7)
+    assert not backups(fsm.tick(1.7, (*P3, NORTH), STILL, no_obstacle))
+    fsm.backup_result(b1.seq, "canceled", 1.75, (*P3, NORTH))
+    fsm.heartbeat(1.8)
+    (b3,) = backups(fsm.tick(1.8, (*P3, NORTH), STILL, no_obstacle))
+    assert b3.distance_m == 0.2 and fsm.is_running("r3")
+
+
+def test_a_retreat_whose_earlier_backup_never_answers_times_out_without_backing_up():
+    fsm = ready()
+    (send,) = sends(move(fsm, "g1", 0.0))
+    stand(fsm, 1.0, STUCK)
+    fsm.nav_result(send.seq, "canceled", 1.5, STUCK, obstacle)
+    cmds = fsm.retreat("r1", 2.0, 0.3, 0.1)
+    for k in range(1, 40):
+        t = 2.0 + 0.1 * k
+        fsm.heartbeat(t)
+        cmds += fsm.tick(t, BEHIND, STILL, no_obstacle)
+    assert not backups(cmds)
+    assert Finish("r1", False, TIMEOUT) in cmds
+
+
 def test_a_retreat_from_standing_still_backs_up_at_once():
     fsm = ready()
     (b,) = backups(fsm.retreat("r1", 1.0, 0.3, 0.1))
