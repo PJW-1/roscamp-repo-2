@@ -78,6 +78,7 @@ sys.path.insert(0, str(REPO / "pc" / "fleet_core"))
 sys.path.insert(0, str(REPO / "pc" / "fleet_core" / "test"))
 sys.path.insert(0, str(REPO / "sim" / "fake_robots"))
 
+from fake_robots.planner import plan_path  # noqa: E402
 from fake_robots.scenario import parse_scenario  # noqa: E402
 from fleet_core.common.commands import SHIPPED, ReportOrderCmd  # noqa: E402
 from fleet_core.common.params import load_params  # noqa: E402
@@ -91,8 +92,12 @@ DEFAULT_PLAN = {
     "lane_map": ["basic_orders", "blocked_lane", "reinstate"],
     "feature_map": ["feature_basic_orders", "feature_blocked_lane"],
     "two_lane_segments": ["basic_orders", "blocked_lane", "reinstate"],
+    "feature_map_free": ["free_area_basic", "free_area_box"],
 }
 MODES = ("path", "point")
+# Scenarios the point mode cannot run: the fake robot drives a point goal in a straight line and
+# does not plan around boxes the way Nav2 would, so it would drive into the box
+PATH_ONLY = {"free_area_box"}
 SEEDS = (1, 2, 3, 4, 5)
 WORLD_FAULTS = ("blocked",)
 OPERATOR_FAULTS = ("operator_remove", "operator_reinstate")
@@ -274,7 +279,7 @@ def build_world(data, map_name_, seed, mode) -> SimWorld:
                     arm_s_per_item=parsed.arm.seconds_per_item,
                     swap_step_s=parsed.arm.swap_seconds / 2,  # take, then put
                     dock_s=parsed.dock.duration_s,
-                    gaussian_noise=True)
+                    gaussian_noise=True, boxes=parsed.boxes, planner=plan_path)
 
 
 def _blank_row(map_, scenario, mode, seed, robots, total) -> dict:
@@ -452,6 +457,8 @@ def main(argv=None) -> int:
     started = time.monotonic()
     for map_, scenario in plan(args.maps, args.scenarios):
         for mode in args.modes:
+            if mode != "path" and scenario_name(scenario) in PATH_ONLY:
+                continue
             for seed in args.seeds:
                 row = run_one(map_, scenario, seed, mode, args.timeout)
                 rows.append(row)

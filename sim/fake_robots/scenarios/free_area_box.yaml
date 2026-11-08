@@ -1,0 +1,37 @@
+# 자유 구역 상자(버전 2 F-1): free_area_basic과 같고 광장 G3-G4 직선 한가운데에 상자 하나를 둔다.
+# 가짜 경로 계산(fake_robots/planner.py)이 상자를 비켜 가는 경로를 내고, 관제는 그 경로를 받아
+# 광장을 지난다(FREE_PATH). 상자는 관제가 모른다(지도에 없다).
+map: feature_map_free
+seed: 7
+speed_factor: 5.0
+timeout_s: 900
+stock: {arm1: {A: 6, B: 6}, arm2: {C: 6, D: 6}}
+orders:
+  - {at_s: 0, id: O-001, items: {A: 1, C: 1}}
+  - {at_s: 0, id: O-002, items: {B: 1, D: 1}}
+  - {at_s: 10, id: O-003, items: {A: 2}}
+  - {at_s: 20, id: O-004, items: {C: 1, D: 1, A: 1}}
+  - {at_s: 40, id: O-005, items: {B: 2, C: 2}}
+  - {at_s: 60, id: O-006, items: {D: 1}}
+robots:
+  pinky1: {start: P-3, speed_mps: 0.20, pose_noise_m: 0.03}
+  pinky2: {start: P-2, speed_mps: 0.18, pose_noise_m: 0.03}
+  pinky3: {start: P-1, speed_mps: 0.20, pose_noise_m: 0.03}
+arm: {seconds_per_item: 4.0, swap_seconds: 8.0, fail_rate: 0.0}
+dock: {duration_s: 3.0, error_cm: 1.0}
+faults: []
+boxes:
+  - {x: 1.35, y: 0.675, size_m: 0.06}
+expect:
+  all_orders_finished: true
+  orders_shipped: 6
+  orders_partial: 0
+  orders_held: 0
+  fifo_violations: 0
+  dual_arm_overlaps: 0
+  zone_holder_max: 1
+  released_without_position_check: 0
+  unheld_zone_pose: 0
+  events_include: [ORDER_BOUND, ORDER_SHIPPED, DOCKED]
+  event_counts: {ORDER_BOUND: 6, COMM_LOST: 0, GOAL_RETRY: 0, ZONE_WAIT_LONG: 0, ROBOT_NOT_REPORTING: 0}
+  order_results: {O-001: SHIPPED, O-002: SHIPPED, O-003: SHIPPED, O-004: SHIPPED, O-005: SHIPPED, O-006: SHIPPED}

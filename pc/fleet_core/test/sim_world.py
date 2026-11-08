@@ -4,6 +4,8 @@
 장애 일정으로 통신 두절, 내비 중단, 도킹 실패, 정지, 앞 물체(막힘), 보고 밀림,
 로봇에서 떨어진 path(bad_path), 팔 실패와 무응답을 넣는다.
 로봇은 핑키처럼 받은 path가 제 자리를 지나는지 본다(지시서 7.5). 멀면 PATH_NOT_CONNECTED.
+자유 구역 경로 요청(PlanCmd)에는 planner(가짜 경로 계산 함수, 없으면 직선)로 답하고, 상자(boxes,
+관제는 모르는 물체)에 로봇이 닿으면 불변식 위반이다(버전 2 F-1).
 매 단계 안전 불변식을 검사하므로 이 세계를 쓰는 테스트는 모두 불변식도 검증한다.
 """
 from __future__ import annotations
@@ -21,6 +23,7 @@ from fleet_core.common.commands import (
     FillCmd,
     MoveCmd,
     OrderRecord,
+    PlanCmd,
     ReportOrderCmd,
     SwapCmd,
 )
@@ -119,6 +122,8 @@ class SimWorld:
     params: object = None
     gaussian_noise: bool = False  # 한계 없는 잡음. 실제 위치추정과 ROS 가짜 노드가 그렇다
     site: object = None  # 예전 테스트는 셀 배치를 쓴다
+    boxes: tuple = ()  # (x, y, size_m)들. 관제는 모르고 planner만 비켜 간다(버전 2 F-1)
+    planner: object = None  # plan_path(start, goal, boxes, polygon=...) 꼴. 없으면 직선으로 답한다
 
     def __post_init__(self):
         self.t = 0.0
@@ -152,6 +157,7 @@ class SimWorld:
         self._queued_results: list = []
         self.min_true_release_distance = float("inf")
         self.path_refusals: list[tuple[float, str, int]] = []  # (시각, 로봇, goal_id)
+        self.box_gap_min = float("inf")  # 로봇 중심에서 상자 가장자리까지 가장 가까웠던 거리
 
     # ---- public helpers for tests -------------------------------------------------------
 
@@ -455,8 +461,23 @@ class SimWorld:
             self._start_dock(item)
         elif isinstance(item, CancelCmd):
             self._cancel(item)
+        elif isinstance(item, PlanCmd):
+            self._plan(item)
         else:
             raise AssertionError(f"unknown output {item!r}")
+
+    def _plan(self, cmd):
+        """로봇의 compute_path_to_pose 대신. 답은 다음 단계에 온다(액션 결과처럼)."""
+        start, goal = (cmd.start_x, cmd.start_y), (cmd.goal_x, cmd.goal_y)
+        polygon = list(self.site.free_areas[cmd.area].polygon)
+        points = (self.planner(start, goal, self.boxes, polygon=polygon) if self.planner
+                  else [start, goal])
+        self._queued_results.append((cmd.robot, self.core.on_plan_result,
+                                     (cmd.robot, cmd.plan_id, points)))
+
+    def _on_free_floor(self, x, y) -> bool:
+        free_areas = getattr(self.site, "free_areas", {})
+        return any(not self.site.free_path_outside(name, [(x, y)]) for name in free_areas)
 
     def _preempt(self, r):
         """교체되는 실행 중 목표도 ROS 액션처럼 결과를 보고한다."""
@@ -498,7 +519,8 @@ class SimWorld:
                 y = ay + (by - ay) * step / 4
                 off = min(_point_segment(x, y, lane.ax, lane.ay, lane.bx, lane.by)
                           for lane in self.site.lanes.values())
-                assert off < LINE_TOLERANCE_M, f"{cmd} from ({r.x}, {r.y}) leaves the lanes"
+                assert off < LINE_TOLERANCE_M or self._on_free_floor(x, y), \
+                    f"{cmd} from ({r.x}, {r.y}) leaves the lanes"
         self._preempt(r)
         r.docked_at = ""
         r.goal_id = cmd.goal_id
@@ -646,6 +668,11 @@ class SimWorld:
         return self.site.zone_of[self.site.nearest_waypoint(r.x, r.y)]
 
     def _check_invariants(self):
+        for r in self.virtual.values():
+            for bx, by, size in self.boxes:
+                gap = math.dist((r.x, r.y), (bx, by)) - size / 2
+                self.box_gap_min = min(self.box_gap_min, gap)
+                assert r.removed or gap > 0.0, f"{r.name} drove into the box at ({bx}, {by})"
         zones = self.core.zones
         owners = {}
         for name in self.robots:

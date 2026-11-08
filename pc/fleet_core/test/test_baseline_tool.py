@@ -413,3 +413,32 @@ def test_the_command_line_writes_the_runs_and_the_summary(tmp_path, capsys):
         metrics = {r["metric"] for r in csv.DictReader(f)}
     assert {"finish_s", "wait_total_s", "stops", "detours", "interventions"} <= metrics
     assert "basic_orders" in capsys.readouterr().out
+
+
+# ---- free areas (version 2 F-1) -------------------------------------------------------------
+
+
+def test_the_free_area_scenarios_cross_the_plaza_on_the_planned_path():
+    for scenario in ("free_area_basic", "free_area_box"):
+        row, world = baseline.run_with_world("feature_map_free", scenario, 1, "path")
+        assert row["finished"], (scenario, row["error"])
+        assert "FREE_PATH" in world.event_codes(), scenario
+        assert "FREE_PATH_REJECTED" not in world.event_codes(), scenario
+    assert world.boxes and world.box_gap_min >= 0.03, "the box scenario keeps off the box"
+
+
+def test_a_robot_on_the_straight_line_drives_into_the_box():
+    data = baseline.load_scenario("free_area_box")
+    world = baseline.build_world(data, "feature_map_free", 1, "path")
+    world.planner = lambda *args, **kwargs: None  # no path: the fleet falls back to the chord
+    with pytest.raises(AssertionError, match="box"):
+        world.run(300)
+
+
+def test_the_box_scenario_runs_in_path_mode_only(tmp_path):
+    """point 모드의 가짜 로봇은 상자를 비켜 갈 경로를 스스로 만들지 않는다(Nav2와 다르다)."""
+    out = tmp_path / "runs.csv"
+    assert baseline.main(["--maps", "feature_map_free", "--scenarios", "free_area_box",
+                          "--seeds", "1", "--out", str(out)]) == 0
+    with out.open(encoding="utf-8") as f:
+        assert [r["mode"] for r in csv.DictReader(f)] == ["path"]

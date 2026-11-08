@@ -41,7 +41,7 @@ EXPECT_DEFAULTS = {
     "robot_idle": 0,  # ROBOT_IDLE 이벤트 수(1.1 지시서 H2). 정상이면 0, null이면 안 봄
 }
 TOP_LEVEL_KEYS = {"seed", "speed_factor", "timeout_s", "stock", "inventory", "orders", "robots",
-                  "arm", "dock", "faults", "expect", "map"}
+                  "arm", "dock", "faults", "expect", "map", "boxes"}
 
 
 def scenario_map_file(scenario_path) -> str:
@@ -148,6 +148,7 @@ class Scenario:
     dock: DockCfg
     faults: list
     expect: Expect
+    boxes: tuple = ()  # (x, y, size_m)들. 가짜 경로 계산이 비켜 가는 물체(버전 2 F-1)
 
     @property
     def order_ids(self) -> list[str]:
@@ -312,6 +313,15 @@ def _parse_expect(data: dict, faults: list) -> Expect:
     return expect
 
 
+def _parse_boxes(data: dict) -> tuple:
+    boxes = []
+    for raw in data.get("boxes") or []:
+        if not isinstance(raw, dict) or set(raw) != {"x", "y", "size_m"}:
+            raise ScenarioError(f"box needs exactly x, y and size_m: {raw!r}")
+        boxes.append((float(raw["x"]), float(raw["y"]), _positive(raw, "size_m")))
+    return tuple(boxes)
+
+
 def parse_scenario(data: dict, lane_map) -> Scenario:
     unknown = set(data) - TOP_LEVEL_KEYS
     if unknown:
@@ -350,6 +360,7 @@ def parse_scenario(data: dict, lane_map) -> Scenario:
         dock=DockCfg(float(dock.get("duration_s", 3.0)), float(dock.get("error_cm", 1.0))),
         faults=faults,
         expect=_parse_expect(data, faults),
+        boxes=_parse_boxes(data),
     )
 
 
