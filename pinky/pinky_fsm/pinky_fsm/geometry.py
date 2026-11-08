@@ -94,6 +94,24 @@ class Polyline:
                 return (ax + f * (bx - ax), ay + f * (by - ay))
         return self.points[-1]
 
+    def heading_at(self, s: float) -> float:
+        """s가 놓인 선분의 방향(rad). 꼭짓점에서는 지나온(뒤) 선분이다. 점 하나면 0."""
+        if len(self.points) == 1:
+            return 0.0
+        i = 0
+        while i < len(self.points) - 2 and self._s[i + 1] < s:
+            i += 1
+        (ax, ay), (bx, by) = self.points[i], self.points[i + 1]
+        return math.atan2(by - ay, bx - ax)
+
+    def vertex_before(self, s: float) -> float:
+        """s 지점이나 그 뒤(지나온 쪽)에서 가장 가까운 꼭짓점의 s. 첫 점도 꼭짓점이다."""
+        best = 0.0
+        for vs in self._s:
+            if vs <= s + _SAME_M:
+                best = vs
+        return best
+
     def rest(self, s: float) -> list[Point]:
         """s 지점부터 끝까지. s 뒤의 꼭짓점은 그대로 둔다."""
         if s >= self.length:

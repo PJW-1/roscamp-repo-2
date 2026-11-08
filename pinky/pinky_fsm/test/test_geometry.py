@@ -80,3 +80,24 @@ def test_single_point_polyline():
 def test_yaw_quaternion_round_trip():
     for yaw in (-3.0, -1.0, 0.0, 0.7, 3.1):
         assert quaternion_yaw(*yaw_quaternion(yaw)) == pytest.approx(yaw)
+
+
+def test_heading_at_is_the_direction_of_the_segment_behind_the_point():
+    """At a corner the robot came along the segment behind it; backing up goes along that one."""
+    line = Polyline([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)])
+    assert line.heading_at(0.0) == pytest.approx(0.0)
+    assert line.heading_at(0.5) == pytest.approx(0.0)
+    assert line.heading_at(1.0) == pytest.approx(0.0)  # the corner itself
+    assert line.heading_at(1.2) == pytest.approx(math.pi / 2)
+    assert line.heading_at(9.0) == pytest.approx(math.pi / 2)
+    assert Polyline([(2.0, 3.0)]).heading_at(0.0) == 0.0
+
+
+def test_vertex_before_is_the_last_vertex_at_or_behind_the_point():
+    line = Polyline([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)])
+    assert line.vertex_before(0.0) == pytest.approx(0.0)
+    assert line.vertex_before(0.5) == pytest.approx(0.0)  # the first point counts
+    assert line.vertex_before(1.0) == pytest.approx(1.0)  # the corner itself
+    assert line.vertex_before(1.2) == pytest.approx(1.0)
+    assert line.vertex_before(2.0) == pytest.approx(2.0)
+    assert Polyline([(2.0, 3.0)]).vertex_before(0.5) == 0.0

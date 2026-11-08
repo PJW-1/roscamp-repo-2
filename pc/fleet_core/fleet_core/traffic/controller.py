@@ -50,6 +50,7 @@ from fleet_core.traffic.mission import (
     PLACEMENT_CONFLICT,
     RECOVERING,
     RUN,
+    SELF_RECOVERING,
     STALLED,
     STOP,
     SWAP,
@@ -120,6 +121,8 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         m = self._missions.get(robot)
         if m is None:
             return
+        self._note_self_recovery(m, state)
+        state = self._self_recovery_as_blocked(m, state)
         if state != BLOCKED:
             m.queue_since = None  # 줄 서기 시계는 BLOCKED가 이어지는 동안만 잰다
         if state == LOCALIZING:
@@ -141,6 +144,35 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
             self._count_reports_outside(m)
             self._watch_lane_error(m)
             self._note_block_report(m)
+
+    def _note_self_recovery(self, m: _Mission, state: str) -> None:
+        """로봇의 자가 복구(RECOVERING, 제안)가 시작하고 끝날 때 한 번씩 알린다."""
+        now = self._clock()
+        if state == SELF_RECOVERING and m.self_recovery_since is None:
+            m.self_recovery_since = now
+            self._event("INFO", "SELF_RECOVERY", "backing up to recover on its own", m.name)
+        elif state != SELF_RECOVERING and m.self_recovery_since is not None:
+            took = now - m.self_recovery_since
+            m.self_recovery_since = None
+            m.self_recovery_long = False
+            self._event("INFO", "SELF_RECOVERY_END", f"after {took:.1f} s, now {state}", m.name)
+
+    def _self_recovery_as_blocked(self, m: _Mission, state: str) -> str:
+        """RECOVERING이 self_recovery_limit_s를 넘으면 BLOCKED로 본다(제안).
+
+        핑키 FSM의 두 번 시도는 길어야 약 35초다. 그보다 길면 무언가 잘못됐으니 막힘 시계와
+        멈춤 감시가 영원히 쉬지 않게, 그 뒤의 RECOVERING 보고를 BLOCKED처럼 다룬다.
+        """
+        if state != SELF_RECOVERING or m.self_recovery_since is None:
+            return state
+        limit = self.params.self_recovery_limit_s
+        if self._clock() - m.self_recovery_since < limit:
+            return state
+        if not m.self_recovery_long:
+            m.self_recovery_long = True
+            self._event("WARN", "SELF_RECOVERY_TOO_LONG",
+                        f"RECOVERING for more than {limit:.0f} s, taken as BLOCKED", m.name)
+        return BLOCKED
 
     def on_run_mode(self, run_mode) -> None:
         if run_mode == STOP and self._run_mode != STOP:
@@ -553,10 +585,12 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
 
         목표 없이 구역을 기다리는 것과 RUN이 아닐 때는 재지 않는다. 목표를 바꿔도 시계는 그대로다.
         막힘과 줄 서기 동안은 쉰다. heartbeat로 선 goal은 다시 보낼 때까지 시계를 잇는다.
+        로봇의 자가 복구(RECOVERING) 동안도 쉬고, 끝나면 그때부터 새로 잰다.
         """
         here = self._smoothed(m, now)
         idle = m.goal is None and not m.stall_hold
-        if idle or self._run_mode != RUN or m.block or self._queue_rests(m):
+        if (idle or self._run_mode != RUN or m.block or self._queue_rests(m)
+                or m.robot_state == SELF_RECOVERING):
             m.stall_from = None
             return
         if m.stall_from is None or math.dist(here, m.stall_from) >= self.params.stall_move_m:
