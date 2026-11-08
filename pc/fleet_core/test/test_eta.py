@@ -233,6 +233,62 @@ def test_a_fill_has_a_set_up_time_that_defaults_to_nothing():
     assert core.eta_station_left("pinky1") == pytest.approx(4.0 + 8.0 + EXIT_S)
 
 
+def test_a_robot_part_way_along_its_last_lane_still_has_that_distance_to_go():
+    # traffic advances idx once the robot is 0.2 m along a lane, so path[idx:] can be the end only
+    core, _ = make({"pinky1": "E1"})
+    m = run(core, "pinky1", TO_OUTBOUND, ["E1", "E2"], "OUTBOUND", hold=["E1", "E2"])
+    m.idx = 1
+    m.x, m.y = SITE.waypoint_pose("E1")[0] + 0.25, SITE.waypoint_pose("E1")[1]
+    assert core.eta("pinky1").travel_s == pytest.approx(0.10 / 0.2)
+
+
+def test_a_robot_queued_behind_another_is_not_stuck():
+    core, _ = make({"pinky1": "E0", "pinky2": "E1"})
+    run(core, "pinky1", TO_OUTBOUND, ["E0", "E1", "E2"], "OUTBOUND", hold=["E0"])
+    m2 = run(core, "pinky2", TO_OUTBOUND, ["E1", "E2", "O"], "OUTBOUND", hold=["E1"])
+    m2.robot_state, m2.queue_since = "BLOCKED", 0.0  # a normal line behind a robot in front
+    assert math.isfinite(core.eta("pinky1").total_s)
+    m2.queue_since = None  # BLOCKED by an object: nothing says when it goes on
+    assert core.eta("pinky1").total_s == math.inf
+
+
+def test_robots_queued_for_a_conflicting_zone_are_served_first():
+    core, _ = make({"pinky1": "F1", "pinky2": "F2", "pinky3": "T1"})
+    run(core, "pinky1", TO_PARK, ["F1", "P-1"], hold=["F1"])
+    run(core, "pinky3", TO_PARK, ["T1", "T2", "QO"], hold=["TUN"])
+    run(core, "pinky2", TO_PARK, ["F2", "T1", "T2"], hold=["F2"])
+    assert core.zones.request("pinky2", "TUN") is False  # TUN (conflicts with P-1) is held
+    release = dist("T1", "T2") / 0.2 + EXIT_S
+    hold = (dist("F2", "T1") + dist("T1", "T2")) / 0.2 + EXIT_S
+    assert core.eta("pinky1").total_s == pytest.approx(release + hold + dist("F1", "P-1") / 0.2)
+
+
+def test_a_delay_on_the_way_lets_a_later_robot_reach_the_dock_first():
+    core, now = make({"pinky1": "E1", "pinky2": "T2", "pinky4": "E2"})
+    run(core, "pinky1", TO_OUTBOUND, ["E1", "E2", "O"], "OUTBOUND", hold=["E1"])
+    run(core, "pinky2", TO_OUTBOUND, ["T2", "QO", "O"], "OUTBOUND", hold=["TUN"])
+    m4 = run(core, "pinky4", AT_STATION, ["E2"], "WORK", hold=["E2"])
+    m4.hold = True
+    r4 = core.orchestrator._robots["pinky4"]
+    r4.stage, r4.arm = SWAPPING, _ArmJob("arm3", 1, "swap", sent_at=0.0)
+    now[0] = 3.0  # pinky4 frees E2 after 5 + 1 s: pinky1 reaches O at 7.75 s, pinky2 at 6.1 s
+    reach2 = (dist("T2", "QO") + dist("QO", "O")) / 0.2
+    free_at = reach2 + 3.0 + 8.0 + EXIT_S
+    assert core.eta("pinky1").total_s == pytest.approx(free_at + dist("E2", "O") / 0.2)
+
+
+def test_a_robot_at_its_station_has_arrived_and_leaves_after_its_work():
+    core, now = make({"pinky2": "O"})
+    m = run(core, "pinky2", AT_STATION, ["O"], "OUTBOUND", hold=["O"])
+    m.hold = True
+    r = core.orchestrator._robots["pinky2"]
+    r.stage, r.arm = SWAPPING, _ArmJob("arm3", 1, "swap", sent_at=0.0)
+    now[0] = 3.0
+    assert core.eta("pinky2").total_s == 0.0
+    # it starts driving when the work is done; clearing the dock zone is part of that drive
+    assert core.eta("pinky2", "F0").total_s == pytest.approx(5.0 + dist("O", "F0") / 0.2)
+
+
 def test_a_robot_heading_for_the_same_dock_behind_us_is_not_waited_for():
     core, _ = make({"pinky1": "E2", "pinky2": "E0"})
     run(core, "pinky1", TO_OUTBOUND, ["E2", "O"], "OUTBOUND", hold=["E2"])

@@ -39,6 +39,12 @@ def test_the_summary_counts_errors_per_leg_and_overall():
     assert rows["all"]["max_abs_s"] == pytest.approx(3.0)
 
 
+def test_legs_still_open_when_the_run_ends_count_as_dropped():
+    got, dropped, _, _ = eta_error.run_one(
+        "feature_map", "feature_basic_orders", 1, "path", {}, 2.0, timeout_s=8.0)
+    assert dropped > 0
+
+
 def test_a_smoke_run_resolves_samples_against_the_real_arrival():
     got, dropped, error, world = eta_error.run_one(
         "feature_map", "feature_basic_orders", 1, "path", {"eta_turn_s_per_rad": 0.0}, 2.0)

@@ -114,7 +114,9 @@ class Sampler:
         if sample_now:
             self.next_at = world.t + self.every_s
         for name, mission in world.core.traffic._missions.items():
-            phase, key = mission.phase, (mission.phase, mission.dest)
+            # a leg is the same only while the path end is: parking paths grow and shrink
+            phase = mission.phase
+            key = (phase, mission.dest, mission.path[-1] if mission.path else None)
             before = self.leg.get(name)
             if before is not None and key != before:
                 self._close(name, before, phase)
@@ -165,7 +167,9 @@ def run_one(map_, scenario, seed, mode, overrides, every_s, timeout_s=None):
                 break
     except AssertionError as exc:
         error = f"invariant at {world.t:.1f} s: {exc}"
-    return sampler.resolved, sampler.dropped, error, world
+    # samples of legs still open when the run ended count as dropped, not as nothing
+    dropped = sampler.dropped + sum(len(v) for v in sampler.pending.values())
+    return sampler.resolved, dropped, error, world
 
 
 def _coerce(text):

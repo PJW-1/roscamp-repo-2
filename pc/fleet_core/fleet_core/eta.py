@@ -32,6 +32,7 @@ from fleet_core.traffic.mission import (
 )
 
 STATION_OVERDUE_S = 1.0  # 시간이 지난 팔 작업은 곧 끝난다고 본다
+ARRIVED_M = 0.02  # 지점에서 이만큼 안이면 닿은 것으로 본다
 
 
 @dataclass(frozen=True)
@@ -60,12 +61,15 @@ class EtaEstimator:
         m = self._traffic._missions.get(robot)
         if m is None or not m.placed or not m.path:
             return None
-        path = m.path[m.idx:]
+        path = self._remaining(m)
         shift = 0.0
         if m.phase == AT_STATION:
-            left = self.station_left_s(robot)
-            shift = self._unknown_s() if left is None else left
             path = path[-1:]
+            if waypoint is None or waypoint == path[0]:
+                return Eta(0.0, 0.0)  # it is at its station
+            left = self.station_left_s(robot)  # it drives off when the work is done; the
+            shift = (self._unknown_s() if left is None  # clearing time is part of that drive
+                     else max(0.0, left - self._exit_s()))
         if waypoint is not None and waypoint not in path:
             try:
                 path = path + self.site.plan(path[-1], waypoint)[1:]
@@ -78,7 +82,7 @@ class EtaEstimator:
             zone = self.site.zone_of[path[i]]
             if zone == self.site.zone_of[path[i - 1]] or zone in held:
                 continue
-            free_at = self._free_at(robot, m, zone, offsets[i])
+            free_at = self._free_at(robot, m, zone, offsets[i] + shift)
             shift = max(shift, free_at - offsets[i - 1])
             if shift == math.inf:
                 break
@@ -95,6 +99,19 @@ class EtaEstimator:
         return self._job_left_s(job) + self._exit_s()
 
     # ---- pieces ---------------------------------------------------------------------------
+
+    def _remaining(self, m) -> list:
+        """The rest of the path, from the waypoint the robot is heading to.
+
+        Traffic moves idx on once the robot is release_distance_m along a lane, so path[idx] can
+        still be ahead of the robot: then the lane before it is kept to measure from the robot.
+        """
+        if m.idx > 0:
+            a, b = m.path[m.idx - 1], m.path[m.idx]
+            s, _ = self.site.lane_progress(a, b, m.x, m.y)
+            if s < self.site.lane(a, b).span - ARRIVED_M:
+                return m.path[m.idx - 1:]
+        return m.path[m.idx:]
 
     def _exit_s(self) -> float:
         return self.params.release_distance_m / self.params.eta_speed_mps
@@ -122,13 +139,15 @@ class EtaEstimator:
         도킹하고 일하는 시간도 본다(아직 아무 구역도 못 쥐었어도).
         """
         zones = self._traffic.zones
-        free = max((self._release_s(holder, held)
-                    for held, holder in zones.holders_around(zone, robot).items()), default=0.0)
+        holders = zones.holders_around(zone, robot)
+        free = max((self._release_s(holder, held) for held, holder in holders.items()),
+                   default=0.0)
         if free == math.inf:
             return free
-        queue = zones.queue(zone)
-        ahead = queue[:queue.index(robot)] if robot in queue else queue
-        free += sum(self._hold_s(other, zone) for other in ahead)
+        # waiters ahead of robot in the queue of zone or of a conflicting zone (zones.blockers)
+        waiters = zones.blockers(robot, zone) - set(holders.values())
+        free += sum(self._hold_s(other, zones.waiting_for(other) or zone)
+                    for other in sorted(waiters))
         station = self.site.stations.get(m.dest)
         if station is not None and self.site.zone_of[station.dock] == zone:
             free = max(free, self._served_before(robot, m, zone, arrival))
@@ -141,9 +160,10 @@ class EtaEstimator:
             if (name == robot or other.dest != m.dest or not other.placed
                     or other.phase not in (TO_WORK, TO_OUTBOUND, DOCKING, AT_STATION)):
                 continue
-            there = other.phase in (DOCKING, AT_STATION) or len(other.path[other.idx:]) < 2
+            ahead = self._remaining(other)
+            there = other.phase in (DOCKING, AT_STATION) or len(ahead) < 2
             reach = 0.0 if there else arrival_offsets(
-                self.site, self.params, other.path[other.idx:], other.x, other.y, other.yaw)[-1]
+                self.site, self.params, ahead, other.x, other.y, other.yaw)[-1]
             if reach < arrival:
                 early.append((reach, name))
         free = 0.0
@@ -157,8 +177,9 @@ class EtaEstimator:
         return free
 
     def _stuck(self, m) -> bool:
-        return bool(m.fault or m.comm or m.block or m.robot_state == BLOCKED
-                    or m.off_lane_since is not None)
+        # BLOCKED in a line behind another robot (queue_since) is a wait, not a stop (detour.py)
+        return bool(m.fault or m.comm or m.block or m.off_lane_since is not None
+                    or (m.robot_state == BLOCKED and m.queue_since is None))
 
     def _service_s(self, m) -> float:
         """스테이션으로 가던 로봇이 도킹하고 일하고 구역을 벗어나기까지(도착 뒤)."""
@@ -177,7 +198,7 @@ class EtaEstimator:
             return self._unknown_s() if left is None else left
         if m.phase == DOCKING:
             return self._service_s(m)
-        path = m.path[m.idx:]
+        path = self._remaining(m)
         if len(path) < 2:
             # at the end of its path: traffic moves a station-bound robot on to DOCKING next tick
             return self._service_s(m) if m.phase in (TO_WORK, TO_OUTBOUND) else self._unknown_s()
@@ -196,7 +217,7 @@ class EtaEstimator:
         m = self._traffic._missions.get(robot)
         if m is None or self._stuck(m):
             return math.inf if m is not None else 0.0
-        path = m.path[m.idx:]
+        path = self._remaining(m)
         lanes = [self.site.lane(a, b) for a, b in zip(path, path[1:], strict=False)
                  if self.site.zone_of[b] == zone]
         inside = sum(lane.span for lane in lanes) / self.params.eta_speed_mps
