@@ -35,6 +35,15 @@ STATION_OVERDUE_S = 1.0  # 시간이 지난 팔 작업은 곧 끝난다고 본�
 ARRIVED_M = 0.02  # 지점에서 이만큼 안이면 닿은 것으로 본다
 
 
+def _to_segment(p, a, b) -> float:
+    """Distance from point p to the segment a-b."""
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    length2 = dx * dx + dy * dy
+    t = 0.0 if length2 == 0.0 else max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy)
+                                                  / length2))
+    return math.dist(p, (a[0] + t * dx, a[1] + t * dy))
+
+
 @dataclass(frozen=True)
 class Eta:
     travel_s: float  # 남은 길 ÷ 속도 + 꺾임 시간
@@ -105,12 +114,24 @@ class EtaEstimator:
 
         Traffic moves idx on once the robot is release_distance_m along a lane, so path[idx] can
         still be ahead of the robot: then the lane before it is kept to measure from the robot.
+        Past a corner the robot can also already be on the next lane while idx is still at the
+        corner: the lane the robot is nearer to decides (no per-axis cut-offs, V2 ETA 4th review).
+        At the last waypoint, running on past it along the lane counts as arrived.
         """
         if m.idx > 0:
             a, b = m.path[m.idx - 1], m.path[m.idx]
+            here = (m.x, m.y)
+            pa, pb = self.site.waypoint_pose(a), self.site.waypoint_pose(b)
+            if math.dist(here, pb) <= ARRIVED_M:
+                return m.path[m.idx:]
+            if m.idx + 1 < len(m.path):
+                pc = self.site.waypoint_pose(m.path[m.idx + 1])
+                if _to_segment(here, pa, pb) < _to_segment(here, pb, pc):
+                    return m.path[m.idx - 1:]  # still on the lane into the corner
+                return m.path[m.idx:]
             s, side = self.site.lane_progress(a, b, m.x, m.y)
-            if s < self.site.lane(a, b).span - ARRIVED_M or side > ARRIVED_M:
-                return m.path[m.idx - 1:]  # not there yet, or beside the waypoint
+            if s < self.site.lane(a, b).span or side > ARRIVED_M:
+                return m.path[m.idx - 1:]  # short of the last waypoint, or beside it
         return m.path[m.idx:]
 
     def _exit_s(self) -> float:

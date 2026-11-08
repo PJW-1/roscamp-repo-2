@@ -268,6 +268,29 @@ def test_a_robot_1_cm_past_and_4_cm_beside_its_last_waypoint_is_not_there_yet():
     assert core.eta("pinky1").travel_s == pytest.approx(math.hypot(0.01, 0.04) / 0.2)
 
 
+def test_a_robot_that_turned_onto_the_next_lane_is_not_sent_back_to_the_corner():
+    # V2 ETA 4th review: F1 -> P-1 -> P-2 turns 90 degrees at P-1. Traffic keeps idx at P-1 until
+    # the robot is release_distance_m along the next lane, so it can be 4 cm along P-1 -> P-2
+    core, _ = make({"pinky1": "F1"})
+    m = run(core, "pinky1", TO_PARK, ["F1", "P-1", "P-2"], "P-2")
+    m.idx = 1
+    px, py = SITE.waypoint_pose("P-1")
+    qx, qy = SITE.waypoint_pose("P-2")
+    d = math.dist((px, py), (qx, qy))
+    m.x, m.y = px + (qx - px) * 0.04 / d, py + (qy - py) * 0.04 / d
+    assert core.eta("pinky1").travel_s == pytest.approx((d - 0.04) / 0.2)
+
+
+def test_a_robot_short_of_its_last_waypoint_on_both_axes_is_not_there_yet():
+    # 1.9 cm short along the lane and 1.9 cm beside it: 2.7 cm to go, more than ARRIVED_M
+    core, _ = make({"pinky1": "E1"})
+    m = run(core, "pinky1", TO_OUTBOUND, ["E1", "E2"], "OUTBOUND", hold=["E1", "E2"])
+    m.idx = 1
+    ex, ey = SITE.waypoint_pose("E2")
+    m.x, m.y = ex - 0.019, ey - 0.019
+    assert core.eta("pinky1").travel_s == pytest.approx(math.hypot(0.019, 0.019) / 0.2)
+
+
 def test_a_robot_just_past_its_last_waypoint_on_the_lane_has_arrived():
     core, _ = make({"pinky1": "E1"})
     m = run(core, "pinky1", TO_OUTBOUND, ["E1", "E2"], "OUTBOUND", hold=["E1", "E2"])
