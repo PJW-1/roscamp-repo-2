@@ -932,6 +932,56 @@ def test_a_retreat_whose_earlier_backup_never_answers_times_out_without_backing_
     assert Finish("r1", False, TIMEOUT) in cmds
 
 
+@pytest.mark.parametrize("drop", ["cancel", "heartbeat"])
+def test_a_new_retreat_still_waits_for_a_backup_whose_waiting_retreat_was_dropped(drop):
+    """V2 교차 재검수 1: 기다리던 Retreat가 끝나도 결과가 안 온 BackUp은 계속 기다린다."""
+    fsm = ready()
+    (b1,) = backups(fsm.retreat("r1", 1.0, 0.3, 0.1))
+    fsm.retreat("r2", 1.5, 0.2, 0.1)
+    t = 1.6
+    if drop == "cancel":
+        fsm.cancel("r2", t)
+    else:
+        t = 1.5 + FsmParams().heartbeat_timeout_s + 0.1
+        assert Finish("r2", False, "FAILED") in fsm.tick(t, (*P3, NORTH), STILL, no_obstacle)
+    fsm.heartbeat(t)
+    assert not backups(fsm.retreat("r3", t, 0.2, 0.1))
+    fsm.heartbeat(t + 0.1)
+    assert not backups(fsm.tick(t + 0.1, (*P3, NORTH), STILL, no_obstacle))
+    fsm.backup_result(b1.seq, "canceled", t + 0.15, (*P3, NORTH))
+    fsm.heartbeat(t + 0.2)
+    (b3,) = backups(fsm.tick(t + 0.2, (*P3, NORTH), STILL, no_obstacle))
+    assert b3.distance_m == 0.2 and fsm.is_running("r3")
+
+
+def test_a_new_retreat_still_waits_for_a_backup_whose_waiting_retreat_a_move_replaced():
+    fsm = ready()
+    (b1,) = backups(fsm.retreat("r1", 1.0, 0.3, 0.1))
+    fsm.retreat("r2", 1.5, 0.2, 0.1)
+    (send,) = sends(move(fsm, "g2", 1.6))
+    fsm.retreat("r3", 1.7, 0.2, 0.1)
+    fsm.nav_result(send.seq, "canceled", 1.75, (*P3, NORTH), no_obstacle)
+    fsm.heartbeat(1.8)
+    assert not backups(fsm.tick(1.8, (*P3, NORTH), STILL, no_obstacle)), "b1 결과가 아직 없다"
+    fsm.backup_result(b1.seq, "canceled", 1.85, (*P3, NORTH))
+    fsm.heartbeat(1.9)
+    (b3,) = backups(fsm.tick(1.9, (*P3, NORTH), STILL, no_obstacle))
+    assert fsm.is_running("r3")
+
+
+def test_a_backup_that_never_answers_stops_holding_retreats_after_its_time_allowance():
+    """nav2 BackUp은 time_allowance가 지나면 스스로 선다. 그 뒤(+ 여유)에는 기다리지 않는다.
+    결과를 잃어도 다음 Retreat가 모두 TIMEOUT으로 끝나지 않게 하는 지킴 시험이다."""
+    fsm = ready()
+    (b1,) = backups(fsm.retreat("r1", 1.0, 0.3, 0.1))
+    fsm.retreat("r2", 1.5, 0.2, 0.1)
+    fsm.cancel("r2", 1.6)
+    late = 1.0 + b1.time_allowance_s + FsmParams().backup_result_grace_s + 0.1
+    fsm.heartbeat(late)
+    (b3,) = backups(fsm.retreat("r3", late, 0.2, 0.1))
+    assert b3.seq != b1.seq
+
+
 def test_a_retreat_from_standing_still_backs_up_at_once():
     fsm = ready()
     (b,) = backups(fsm.retreat("r1", 1.0, 0.3, 0.1))
