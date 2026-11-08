@@ -219,7 +219,8 @@ def min_clearance(lane_map, site: Site = LANE_ARENA) -> tuple[float, str, str]:
 
 def occupancy(resolution: float, site: Site = LANE_ARENA) -> list[list[bool]]:
     """벽·상자가 조금이라도(칸의 백만분의 1 넘게) 걸친 칸은 점유. 줄은 아래(y 작은 쪽)부터.
-    격자에 맞춘 상자는 칸 중심으로 판정할 때와 같고, 얇거나 어긋난 상자도 지도에서 사라지지 않는다."""
+    격자에 맞춘 상자는 칸 중심으로 판정할 때와 같고, 얇거나 어긋난 상자도 지도에서
+    사라지지 않는다."""
     nx, ny = round(site.map_size[0] / resolution), round(site.map_size[1] / resolution)
     ox, oy = site.map_origin
     grid = [[False] * nx for _ in range(ny)]

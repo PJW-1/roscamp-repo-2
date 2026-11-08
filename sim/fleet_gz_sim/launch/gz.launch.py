@@ -6,7 +6,8 @@
 - 핑키는 시나리오(fake_robots/scenarios, 기본 basic_orders)의 시작 지점에 놓는다(fleet_setup).
 - 경기장은 시나리오의 map이 고른다(fleet_setup.arena_for). 없으면 lane_arena, map: warehouse면
   창고 월드, Nav2 지도, 관제·가짜·fleet_view·장애물의 레인 지도를 모두 창고 것으로.
-    ros2 launch fleet_gz_sim gz.launch.py scenario:=gz_warehouse sim_dock_stub:=true obstacles:=warehouse
+    ros2 launch fleet_gz_sim gz.launch.py scenario:=gz_warehouse sim_dock_stub:=true \
+        obstacles:=warehouse
 - 모든 로봇이 IDLE이 되면(wait_ready) 관제, 가짜 작업셀·비전·출고 팔·central, 시나리오 모니터를
   띄운다. 모니터가 기대값을 판정해 result_dir에 summary.json을 쓰고 launch를 끝낸다.
 - 시계는 Gazebo /clock 하나를 모두 쓴다. sim_clock을 띄우지 않으므로 시나리오의 speed_factor는

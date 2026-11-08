@@ -371,8 +371,9 @@ def test_rviz_can_follow_one_pinky_or_stay_closed(made):
 
 def after_ready(actions):
     """wait_ready가 0으로 끝났을 때 띄우는 관제 쪽 노드들."""
-    [handler] = [a for a in flat(actions) if isinstance(a, Made) and a.kind == "OnProcessExit"
-                 and a.kw.get("on_exit") is not None and callable(a.kw["on_exit"])]
+    exits = [a.args[0] for a in flat(actions)
+             if isinstance(a, Made) and a.kind == "RegisterEventHandler"]
+    [handler] = [e for e in exits if callable(e.kw.get("on_exit"))]
 
     class Exit:
         returncode = 0
