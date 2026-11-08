@@ -1,6 +1,9 @@
 # 이름, 타입, QoS의 유일한 기준. 코드는 `key`로 찾으므로 이름이나 QoS는 여기만 고친다.
 # 팀 합의 전까지 모두 초안이다. QoS depth는 실제 Wi-Fi에서 측정해야 한다.
-version: 0.7-draft
+version: 0.8-draft
+# 0.8 (2026-11-09, 제안(팀 합의 전)): MoveTo goal에 bool final_goal(기본 true)을 더했다. path 끝이 임무의
+# 마지막 지점이 아니면(잠금 경계) 거짓이다. 핑키는 그때 끝까지 남은 거리 d로 속도를 √(2·a·d) 아래로
+# 제한한다(nav2 speed_limit). 끝을 넘지 않는다는 규칙은 같다. FMS 개선 계획 버전 2 4절 horizon 최소판.
 # 0.7 (2026-11-09, 제안(팀 합의 전)): 액션 /{pinky}/retreat(fleet_interfaces/action/Retreat)를 더했다.
 # 교착을 풀 때 관제가 한 로봇에게 보는 방향 그대로 뒤로 곧게 물러나라고 시킨다(distance_m, speed_mps).
 # 핑키는 자가 복구와 같은 BackUp 실행 코드로 간다. 결과 reason은 OBSTACLE_BEHIND, TIMEOUT, CANCELED,
