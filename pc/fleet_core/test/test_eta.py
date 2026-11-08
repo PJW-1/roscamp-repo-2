@@ -250,6 +250,44 @@ def test_a_robot_beside_its_last_waypoint_still_has_the_sideways_distance_to_go(
     assert core.eta("pinky1").travel_s == pytest.approx(0.10 / 0.2)
 
 
+def test_a_robot_past_its_last_waypoint_and_beside_it_still_has_the_sideways_distance():
+    core, _ = make({"pinky1": "E1"})
+    m = run(core, "pinky1", TO_OUTBOUND, ["E1", "E2"], "OUTBOUND", hold=["E1", "E2"])
+    m.idx = 1
+    ex, ey = SITE.waypoint_pose("E2")
+    m.x, m.y = ex + 0.03, ey - 0.10  # 3 cm past along the lane, 10 cm to the side
+    assert core.eta("pinky1").travel_s == pytest.approx(math.hypot(0.03, 0.10) / 0.2)
+
+
+def test_a_robot_just_past_its_last_waypoint_on_the_lane_has_arrived():
+    core, _ = make({"pinky1": "E1"})
+    m = run(core, "pinky1", TO_OUTBOUND, ["E1", "E2"], "OUTBOUND", hold=["E1", "E2"])
+    m.idx = 1
+    ex, ey = SITE.waypoint_pose("E2")
+    m.x, m.y = ex + 0.10, ey + 0.01
+    assert core.eta("pinky1").travel_s == 0.0
+
+
+@pytest.mark.parametrize("requests, hold_zone", [
+    (["P-1", "TUN"], "P-1"),  # the target zone first
+    (["TUN", "P-1"], "P-1"),  # the target zone second
+    (["F2", "TUN"], "TUN"),  # a zone that conflicts with the target, second
+    (["TUN", "F2"], "TUN"),  # ... and first
+])
+def test_a_waiter_with_two_requests_is_timed_in_the_zone_that_blocks_us(requests, hold_zone):
+    core, _ = make({"pinky1": "F1", "pinky2": "E1", "pinky3": "T1", "pinky4": "F2"})
+    run(core, "pinky1", TO_PARK, ["F1", "P-1"], hold=["F1"])
+    run(core, "pinky3", TO_PARK, ["T1", "T2", "QO"], hold=["TUN"])
+    run(core, "pinky4", PARKED, ["F2"], hold=["F2"])  # F2 is held too: both requests stay queued
+    run(core, "pinky2", TO_PARK, ["F2", "T1", "T2"])
+    assert core.zones.request_all("pinky2", requests) is False
+    assert set(requests) <= set(core.zones.requests_of("pinky2"))
+    release = dist("T1", "T2") / 0.2 + EXIT_S
+    inside = 0.0 if hold_zone == "P-1" else (dist("F2", "T1") + dist("T1", "T2")) / 0.2
+    assert core.eta("pinky1").total_s == pytest.approx(
+        release + inside + EXIT_S + dist("F1", "P-1") / 0.2)
+
+
 def test_a_robot_queued_behind_another_is_not_stuck():
     core, _ = make({"pinky1": "E0", "pinky2": "E1"})
     run(core, "pinky1", TO_OUTBOUND, ["E0", "E1", "E2"], "OUTBOUND", hold=["E0"])

@@ -2,6 +2,7 @@
 import math
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -37,6 +38,60 @@ def test_the_summary_counts_errors_per_leg_and_overall():
     assert rows["TO_PARK"]["samples"] == 1 and rows["TO_PARK"]["inf"] == 1
     assert rows["all"]["samples"] == 3 and rows["all"]["dropped"] == 3
     assert rows["all"]["max_abs_s"] == pytest.approx(3.0)
+
+
+class Stub:
+    """A world with one robot whose phase and path the test sets, and a fixed ETA."""
+
+    def __init__(self):
+        self.t = 0.0
+        self.mission = SimpleNamespace(phase="TO_PARK", dest=None, path=["A", "B"])
+        self.core = SimpleNamespace(traffic=SimpleNamespace(_missions={"r": self.mission}))
+        self.virtual = {"r": SimpleNamespace(removed=False)}
+        self.sampler = eta_error.Sampler(
+            self, SimpleNamespace(eta=lambda name: SimpleNamespace(
+                total_s=5.0, travel_s=4.0, wait_s=1.0)), every_s=1.0)
+
+    def step(self, phase, path):
+        self.t += 1.0
+        self.mission.phase, self.mission.path = phase, path
+        self.sampler.observe()
+
+
+def test_parking_at_the_goal_the_sample_was_taken_for_resolves_it():
+    w = Stub()
+    w.step("TO_PARK", ["A", "B"])
+    w.step("TO_PARK", ["A", "B"])
+    w.step("PARKED", ["A", "B"])
+    assert [s["sampled_s"] for s in w.sampler.resolved] == [1.0, 2.0]
+    assert w.sampler.dropped == 0
+
+
+def test_a_path_shortened_in_the_leg_and_then_parked_drops_the_earlier_samples():
+    w = Stub()
+    w.step("TO_PARK", ["A", "B"])
+    w.step("TO_PARK", ["A"])  # trimmed: the goal moved
+    w.step("PARKED", ["A"])
+    assert [s["sampled_s"] for s in w.sampler.resolved] == [2.0]
+    assert w.sampler.dropped == 1
+
+
+def test_a_path_shortened_in_the_step_it_parks_drops_the_samples_too():
+    w = Stub()
+    w.step("TO_PARK", ["A", "B"])
+    w.step("PARKED", ["A"])  # trimmed and arrived in one step
+    assert w.sampler.resolved == []
+    assert w.sampler.dropped == 1
+
+
+def test_a_goal_changed_mid_leg_keeps_only_the_new_goals_samples():
+    w = Stub()
+    w.step("TO_PARK", ["A", "B"])
+    w.step("TO_PARK", ["A", "C"])
+    w.step("TO_PARK", ["A", "C"])
+    w.step("PARKED", ["A", "C"])
+    assert [s["sampled_s"] for s in w.sampler.resolved] == [2.0, 3.0]
+    assert w.sampler.dropped == 1
 
 
 def test_legs_still_open_when_the_run_ends_count_as_dropped():
