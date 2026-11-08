@@ -83,6 +83,7 @@ def test_every_way_into_the_core_is_recorded():
         "on_dock_result": ("r1", 7, True, 1.0, 1.0, 0.5),
         "on_fill_result": (7, True, {"A": 1}, {}, ""),
         "on_swap_result": (7, True, True, True, ""),
+        "on_plan_result": ("r1", 7, [[1.0, 0.6], [2.0, 0.6]]),
         "confirm_clear": ("r1", ["P-6"], "lifted off"),
         "reinstate": ("r1", "EMPTY", "back on the floor"),
         "tick": (),

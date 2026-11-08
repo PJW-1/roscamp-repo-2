@@ -36,6 +36,9 @@ class TrafficOffLane:
         if lane != m.lane_ref:
             m.lane_ref, m.off_lane, m.off_lane_warned = lane, 0, False
         s, e = self.site.lane_progress(*lane, m.x, m.y)
+        planned = self._free_gap(m, lane)  # 자유 구역에서는 받은 경로 기준(버전 2 F-1)
+        if planned is not None:
+            e = planned
         m.off_lane = m.off_lane + 1 if e > self.params.lane_error_warn_m else 0
         if m.off_lane >= self.params.release_confirm_samples and not m.off_lane_warned:
             m.off_lane_warned = True
@@ -66,6 +69,9 @@ class TrafficOffLane:
         half = self.site.half_width
         span = self.site.lane(*m.off_lane_at).span
         on = e <= half and -half <= s <= span + half  # 직선이 아니라 구간 위
+        planned = self._free_gap(m, m.off_lane_at)
+        if planned is not None:
+            on = planned <= half
         m.back_on_lane = m.back_on_lane + 1 if on else 0
         if not on:
             m.back_on_lane_at = None

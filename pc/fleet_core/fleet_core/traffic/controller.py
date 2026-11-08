@@ -29,6 +29,7 @@ from fleet_core.common.commands import (
 )
 from fleet_core.traffic.blocking import TrafficBlocking
 from fleet_core.traffic.detour import TrafficDetour
+from fleet_core.traffic.free_area import TrafficFreeArea
 from fleet_core.traffic.idle_watch import TrafficIdleWatch
 from fleet_core.traffic.isolation import TrafficIsolation
 from fleet_core.traffic.lane_path import TrafficPath
@@ -72,7 +73,7 @@ from fleet_core.traffic.zones import ZoneLocks
 
 class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, TrafficDetour,
                         TrafficIsolation, TrafficPath, TrafficReleaseFloor, TrafficReinstate,
-                        TrafficIdleWatch):
+                        TrafficIdleWatch, TrafficFreeArea):
     def __init__(self, site, params, robots, clock, next_goal_id=None):
         if site.shortest_exit_lane() <= params.release_distance_m:
             raise ValueError(
@@ -805,6 +806,7 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         m.phase = phase
         m.dest = dest
         _, new_next = self._upcoming(m)
+        self._drop_stale_plans(m)
         requests = self.zones.requests_of(m.name)
         if old_next and old_next != new_next:
             self.zones.cancel_request(m.name, old_next)
@@ -1015,7 +1017,8 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
             step = self._step_between(m, anchor)
         reach = anchor
         while (reach < last and self._joins(m, reach, step)
-               and self._zone(m.path[reach + 1]) in held):
+               and self._zone(m.path[reach + 1]) in held
+               and self._free_crossing_ready(m, reach)):
             reach += 1
         if reach != anchor:
             self._send_move(m, reach, step)

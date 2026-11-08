@@ -71,6 +71,11 @@ class FleetParams:
     # than this is taken as BLOCKED. The pinky FSM's two attempts take about 35 s at most.
     # Records from before RECOVERING never report it, so the value does not change their replay
     self_recovery_limit_s: float = 45.0
+    # Proposal (version 2 F-1, free areas): how long to wait for the robot planner's path
+    # before crossing on the straight gate-to-gate line, and how much longer than that line a
+    # planned path may be. Maps without free areas never use them
+    free_plan_wait_s: float = 2.0
+    free_path_max_ratio: float = 2.0
 
 
 def load_params(path=None) -> FleetParams:

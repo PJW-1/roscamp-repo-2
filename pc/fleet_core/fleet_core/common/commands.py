@@ -30,6 +30,19 @@ class MoveCmd:
 
 
 @dataclass(frozen=True)
+class PlanCmd:
+    """자유 구역 안 경로 계산 요청(버전 2 F-1, 제안). 로봇의 compute_path_to_pose로 간다."""
+    robot: str
+    plan_id: int
+    area: str
+    start_x: float
+    start_y: float
+    goal_x: float
+    goal_y: float
+    goal_yaw: float
+
+
+@dataclass(frozen=True)
 class DockCmd:
     robot: str
     goal_id: int

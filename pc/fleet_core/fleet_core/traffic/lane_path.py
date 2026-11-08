@@ -52,8 +52,16 @@ class TrafficPath:
         if not self._follows_path:
             return ()
         points = [(m.x, m.y)]
-        ahead = [self.site.waypoint_pose(w)
-                 for w in m.path[self._first_ahead(m, target_idx):target_idx + 1]]
+        first = self._first_ahead(m, target_idx)
+        ahead = []
+        if first > 0 and (m.path[first - 1], m.path[first]) in m.free_paths:
+            # 자유 구역을 지나는 중(버전 2 F-1): 받은 경로에서 로봇 앞 점들
+            ahead += self._free_points_ahead(m, (m.path[first - 1], m.path[first]))[:-1]
+        for k in range(first, target_idx + 1):
+            ahead.append(self.site.waypoint_pose(m.path[k]))
+            key = (m.path[k], m.path[k + 1]) if k < target_idx else None
+            if key in m.free_paths:
+                ahead += list(m.free_paths[key][1:-1])  # 받은 경로의 안쪽 점
         if len(ahead) > 1 and math.dist(points[0], ahead[0]) < 1e-9:
             ahead.pop(0)  # 지점 위에 서 있다
         points += ahead

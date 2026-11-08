@@ -171,6 +171,13 @@ class FleetManager:
             self.traffic.on_goal_lost(robot, goal_id)
             self._pump()
 
+    def on_plan_result(self, robot, plan_id, points) -> None:
+        """자유 구역 경로 계산(compute_path_to_pose)의 답. 실패면 points가 None(버전 2 F-1)."""
+        self._input("on_plan_result", robot, plan_id, points)
+        if not self._robot_refused("plan result", robot):
+            self.traffic.on_plan_result(robot, plan_id, points)
+            self._pump()
+
     def on_dock_result(self, robot, goal_id, success, error_x_cm=0.0, error_y_cm=0.0,
                        error_yaw_deg=0.0) -> None:
         self._input("on_dock_result", robot, goal_id, success, error_x_cm, error_y_cm,
