@@ -472,7 +472,8 @@ def test_the_crossing_map_leaves_room_to_stop_short_on_every_exit_lane():
     """Gazebo에서 로봇은 지점 앞 도착 허용치(arrival 0.15 m) 안에 선다. 구역을 떠나는 레인이
     release_distance_m + 0.15보다 짧으면 끝 지점에 선 로봇이 앞 구역을 못 놓고 다음 구역도
     청하지 않아 멈춘다(첫 Gazebo 실행에서 O->F0 0.25 m로 생김). 출입구로 들어가는 레인은
-    목표가 출입구에서 서지 않으므로 뺀다."""
+    뺀다: 이 지도를 쓰는 칸 모드에서는 광장 경로와 칸을 먼저 쥐어 목표가 출입구에서 끝나지
+    않는다(F-1 모드는 광장 경로를 기다리는 동안 출입구에서 설 수 있다)."""
     from pathlib import Path
 
     from fleet_core.traffic.lane_map import load_lane_map
@@ -481,5 +482,5 @@ def test_the_crossing_map_leaves_room_to_stop_short_on_every_exit_lane():
     gates = {g for area in site.free_areas.values() for g in area.gates}
     short = [(a, b, round(lane.span, 3)) for (a, b), lane in site.lanes.items()
              if site.zone_of[a] != site.zone_of[b] and b not in gates
-             and lane.span < 0.2 + 0.15 - 1e-9]
+             and lane.span < 0.2 + 0.15 + 0.005]  # 해제는 s > 0.2(엄격)라 5 mm 더
     assert short == []
