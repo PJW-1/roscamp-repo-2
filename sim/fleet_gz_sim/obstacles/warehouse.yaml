@@ -1,0 +1,13 @@
+# 창고 지도(warehouse)용 장애물 일정. 형식은 roam.yaml 머리말과 같다.
+# 기본 길(WORK->OUTBOUND: 줄 3, 열 E, 줄 0 / OUTBOUND->WORK: 줄 2, TUN, 열 A) 위에서 돌아가는
+# 길이 있는 레인에만 놓는다. 대기 줄, 도크 앞, 대기 칸 레인에는 놓지 않는다.
+repeat_every_s: 300
+size_m: [0.12, 0.12, 0.25]
+obstacles:
+  - {at_s: 30, lane: [B3, C3], duration_s: 30}      # 돌아가는 길: 열 A, 줄 0
+  - {at_s: 70, lane: [F2, E2], duration_s: 30}      # G2에서 북쪽(G3, 줄 4)
+  - {at_s: 115, lane: [E2, E1], duration_s: 25}     # E2에서 줄 2 서쪽
+  - {at_s: 155, lane: [D2, C2], duration_s: 30}     # E2에서 줄 1(E1->C1)
+  - {at_s: 200, lane: [A2, C2], duration_s: 25}     # 좁은 통로 TUN. 돌아가는 길: 줄 1
+  - {at_s: 245, lane: [C3, D3], duration_s: 30}     # A3에서 열 A, 줄 0
+# 줄 0의 E0->F0, F0->G0은 OUTBOUND로 가는 유일한 길이라 놓지 않는다.
