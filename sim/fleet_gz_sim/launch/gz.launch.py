@@ -98,7 +98,8 @@ def fleet(scenario_file: str, robots: list[str], result_dir: str, monitor: bool,
         actions.append(Node(package="fleet_gz_sim", executable="sim_obstacles",
                             name="sim_obstacles", output="screen",
                             parameters=[{"use_sim_time": True, "robots": robots,
-                                         "obstacles_file": obstacles_file}]))
+                                         "obstacles_file": obstacles_file,
+                                         "lane_map": map_file}]))
     probe = {"use_sim_time": True, "robots": robots, "result_dir": result_dir, "settle_s": 2.0}
     if check:
         # recovery_probe는 같은 프로세스에서 돈다(DDS 참여자를 아낀다)

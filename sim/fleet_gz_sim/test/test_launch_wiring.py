@@ -368,7 +368,12 @@ def test_the_obstacle_node_places_boxes_on_gazebo_time_away_from_every_pinky(mad
                          obstacles_file="/some/roam.yaml")
     [node] = nodes(actions, "sim_obstacles")
     assert params(node) == {"use_sim_time": True, "robots": ROBOTS,
-                            "obstacles_file": "/some/roam.yaml"}
+                            "obstacles_file": "/some/roam.yaml", "lane_map": ""}
+    crossing = path.parent / "free_area_crossing.yaml"
+    actions = made.fleet(str(crossing), ROBOTS, result_dir="out", monitor=True,
+                         obstacles_file="/some/roam.yaml")
+    [node] = nodes(actions, "sim_obstacles")
+    assert params(node)["lane_map"].endswith("feature_map_crossing.yaml"), "장애물도 시나리오 지도"
 
 
 def test_an_unknown_obstacle_schedule_stops_the_launch_before_anything_starts(made):
