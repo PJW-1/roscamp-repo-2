@@ -151,7 +151,7 @@ class ObstacleRecovery:
             x, y = motion.way_back(wall_behind_m)[-1]
             b.fixed[wall_behind_m] = (x, y, 0.0)
         if (t >= b.until or b.left <= 1e-9
-                or self._something_behind(motion, b.left, [*others, *b.fixed.values()])):
+                or self.something_behind(motion, b.left, [*others, *b.fixed.values()])):
             self._backup = None  # 그 자리에서 멈춘다. 시도는 이어 간다
             return
         step = min(self.p.backup_speed_mps * dt, b.left)
@@ -160,7 +160,7 @@ class ObstacleRecovery:
         if b.left <= 1e-9:
             self._backup = None
 
-    def _something_behind(self, motion, left: float, objects) -> bool:
+    def something_behind(self, motion, left: float, objects) -> bool:
         """남은 후진 길에서 몸(반지름)이 물체에 닿는가(Nav2 BackUp처럼 남은 길 전체를 본다).
 
         지금 자리보다 가까워지지 않는 물체(로봇 바로 앞 등)는 후진을 막지 않는다.

@@ -2,9 +2,12 @@
 
 compute_path_to_pose(버전 2 F-1, 계약 0.6-draft 제안)는 Nav2 planner_server 대신 시나리오의
 상자(boxes)를 비켜 가는 가짜 계산(planner.py)으로 답한다.
+retreat(버전 2 1-A, 계약 0.7-draft 제안)는 보는 방향 그대로 뒤로 곧게 간다. 뒤에 다른 로봇이나
+물체가 있으면 그 자리에 서서 OBSTACLE_BEHIND로 끝낸다(자기 복구의 뒤 보기와 같은 검사).
 """
 from __future__ import annotations
 
+import math
 import random
 import threading
 import time
@@ -12,7 +15,7 @@ from dataclasses import fields
 
 import rclpy
 from fleet_core.common.contract import to_ros_qos
-from fleet_interfaces.action import Dock, MoveTo
+from fleet_interfaces.action import Dock, MoveTo, Retreat
 from fleet_interfaces.msg import RobotState
 from geometry_msgs.msg import Pose2D, PoseStamped
 from nav2_msgs.action import ComputePathToPose
@@ -64,6 +67,8 @@ class _Goal:
         self.start_at = 0.0
         self.error = (0.0, 0.0, 0.0)
         self.target_id = ""  # target_id of a move, dock_id of a dock (current_goal)
+        self.left = 0.0  # retreat: 남은 거리
+        self.speed = 0.0
 
     def finish(self, success: bool, reason: str = "") -> None:
         if not self.done.is_set():
@@ -131,6 +136,8 @@ class FakePinkyNode(Node):
             MoveTo, contract.name("move_to", pinky=self.robot_id), "move", group)
         self._dock_server = self._server(
             Dock, contract.name("dock", pinky=self.robot_id), "dock", group)
+        self._retreat_server = self._server(
+            Retreat, contract.name("retreat", pinky=self.robot_id), "retreat", group)
         self._plan_server = ActionServer(
             self, ComputePathToPose, contract.name("compute_path_to_pose", pinky=self.robot_id),
             execute_callback=self._plan, callback_group=group)
@@ -156,6 +163,7 @@ class FakePinkyNode(Node):
         self.stop()
         self._move_server.destroy()
         self._dock_server.destroy()
+        self._retreat_server.destroy()
         self._plan_server.destroy()
         return super().destroy_node()
 
@@ -251,12 +259,39 @@ class FakePinkyNode(Node):
                         eta = self._motion.remaining() / self._cfg.speed_mps
                         goal.abort_at = t + min(NAV_ABORT_DELAY_S, eta / 2)  # 도착 전에 중단
                         goal.abort_from = self._faults.last_taken
+            elif kind == "retreat":
+                self._start_retreat(goal, handle.request)
             else:
                 goal.target_id = handle.request.dock_id
                 self._motion.clear_target()
                 goal.end_at = t + self._dock_cfg.duration_s
             self._goals[bytes(handle.goal_id.uuid)] = goal
         handle.execute()
+
+    def _start_retreat(self, goal: _Goal, request) -> None:
+        """보는 방향 그대로 뒤로 곧게. 지나온 선을 뒤의 한 점으로 두고 Motion.back으로 간다."""
+        distance, speed = float(request.distance_m), float(request.speed_mps)
+        if distance <= 0.0 or speed <= 0.0:
+            self._end(goal, False, Retreat.Result.REASON_FAILED)
+            return
+        m = self._motion
+        m.clear_target()
+        m.trail = [(m.x - math.cos(m.yaw) * distance, m.y - math.sin(m.yaw) * distance)]
+        goal.left, goal.speed = distance, speed
+
+    def _retreat_step(self, t: float, dt: float, goal: _Goal) -> None:
+        radius = self._recovery.p.robot_radius_m
+        wall = self._faults.behind(t)
+        others = [(x, y, radius) for x, y in list(self._others.values())]
+        if ((wall is not None and wall <= goal.left + radius)
+                or self._recovery.something_behind(self._motion, goal.left, others)):
+            self._end(goal, False, Retreat.Result.REASON_OBSTACLE_BEHIND)
+            return
+        step = min(goal.speed * dt, goal.left)
+        self._motion.back(step)
+        goal.left -= step
+        if goal.left <= 1e-9:
+            self._end(goal, True)
 
     def _path_misses_me(self, t: float, path) -> bool:
         """받은 path가 로봇이 아는 제 자리에서 연결 허용 거리보다 먼가(지시서 7.5).
@@ -308,6 +343,8 @@ class FakePinkyNode(Node):
     def _result(self, goal: _Goal, action_type):
         if action_type is MoveTo:
             return MoveTo.Result(success=goal.success, reason=goal.reason)
+        if action_type is Retreat:
+            return Retreat.Result(success=goal.success, reason=goal.reason)
         ex, ey, eyaw = goal.error
         return Dock.Result(success=goal.success, error_x_cm=ex, error_y_cm=ey,
                            error_yaw_deg=eyaw)
@@ -349,6 +386,8 @@ class FakePinkyNode(Node):
                 if not self._motion.moving:
                     self._recovery.succeeded()
                     self._end(goal, True)
+            elif goal.kind == "retreat":
+                self._retreat_step(t, dt, goal)
             elif t >= goal.end_at:
                 e = self._dock_cfg.error_cm
                 goal.error = (self._rng.gauss(e, 0.1 * e), self._rng.gauss(e, 0.1 * e),
@@ -402,7 +441,7 @@ class FakePinkyNode(Node):
         elif self._recovery.blocked:
             state = RobotState.STATE_BLOCKED
         elif busy:
-            state = RobotState.STATE_MOVING if goal.kind == "move" else RobotState.STATE_DOCKING
+            state = RobotState.STATE_DOCKING if goal.kind == "dock" else RobotState.STATE_MOVING
         else:
             state = self._rest
         x, y = noisy_pose(self._motion.x, self._motion.y, self._cfg.pose_noise_m, self._rng)

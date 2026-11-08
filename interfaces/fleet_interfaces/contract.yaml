@@ -1,6 +1,10 @@
 # 이름, 타입, QoS의 유일한 기준. 코드는 `key`로 찾으므로 이름이나 QoS는 여기만 고친다.
 # 팀 합의 전까지 모두 초안이다. QoS depth는 실제 Wi-Fi에서 측정해야 한다.
-version: 0.6-draft
+version: 0.7-draft
+# 0.7 (2026-11-09, 제안(팀 합의 전)): 액션 /{pinky}/retreat(fleet_interfaces/action/Retreat)를 더했다.
+# 교착을 풀 때 관제가 한 로봇에게 보는 방향 그대로 뒤로 곧게 물러나라고 시킨다(distance_m, speed_mps).
+# 핑키는 자가 복구와 같은 BackUp 실행 코드로 간다. 결과 reason은 OBSTACLE_BEHIND, TIMEOUT, CANCELED,
+# FAILED. 관제는 뒤 구역을 곧바로 잡을 수 있을 때만 시킨다. FMS 개선 계획 버전 2 1-A.
 # 0.6 (2026-11-09, 제안(팀 합의 전)): 액션 /{pinky}/compute_path_to_pose(nav2 planner_server)를 더했다.
 # 자유 구역(광장)이 있는 지도에서만 관제가 부른다. 입구에서 출구까지(use_start) 경로를 받아 바닥 안이면
 # MoveTo path에 넣는다. 답이 없거나 바닥 밖이면 출입구 사이 직선으로 간다. FMS 개선 계획 버전 2 F-1.
@@ -57,6 +61,8 @@ actions:
   - {key: follow_path, name: "/{pinky}/follow_path", type: nav2_msgs/action/FollowPath, real_only: true}
   # 0.6(제안): 자유 구역 안 경로. 실물은 Nav2 planner_server, 가짜 로봇은 상자를 비켜 가는 가짜 계산.
   - {key: compute_path_to_pose, name: "/{pinky}/compute_path_to_pose", type: nav2_msgs/action/ComputePathToPose}
+  # 0.7(제안): 관제가 시키는 물러나기(교착 풀기). 이동 goal을 대신한다.
+  - {key: retreat, name: "/{pinky}/retreat", type: fleet_interfaces/action/Retreat}
 
 services:
   - {key: set_run_mode, name: "/central/set_run_mode", type: fleet_interfaces/srv/SetRunMode}

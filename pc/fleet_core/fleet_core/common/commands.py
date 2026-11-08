@@ -56,6 +56,15 @@ class CancelCmd:
 
 
 @dataclass(frozen=True)
+class RetreatCmd:
+    """보는 방향 그대로 곧게 후진(버전 2 1-A, 계약 0.7-draft 제안). 로봇의 retreat 액션으로 간다."""
+    robot: str
+    goal_id: int
+    distance_m: float
+    speed_mps: float
+
+
+@dataclass(frozen=True)
 class FillCmd:
     goal_id: int
     robot: str

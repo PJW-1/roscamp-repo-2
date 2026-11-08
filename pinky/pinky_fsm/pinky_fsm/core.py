@@ -6,6 +6,8 @@
 - R번호 = Drive 핑키_제어파트_전달사항_2026-11-06 3절
 - 자가 복구 = 핑키_계약 3절 7번(2026-11-09 제안): 막히면 쥔 구역 안에서 짧게 물러나고 지도
   장애물을 비운 뒤 같은 선을 다시 따른다. 두 번까지 하고, 그동안 RECOVERING으로 보고한다.
+- 물러나기 = FMS 개선 계획 버전 2 1-A(계약 0.7-draft 제안): 관제의 Retreat goal. 이동을 먼저
+  멈추고(둘 다 cmd_vel) 자가 복구와 같은 BackUp을 낸다. 결과는 backup.reason_of로 만든다.
 
 시각은 모두 벽시계 초다(heartbeat는 벽시계로 재야 하고, 나머지도 같은 축을 쓴다).
 노드는 SendPath를 Nav2 FollowPath 목표로, CancelNav를 그 취소로, Finish를 액션 결과로 옮긴다.
@@ -16,7 +18,14 @@ import math
 from collections.abc import Callable, Hashable, Sequence
 from dataclasses import dataclass, field
 
-from pinky_fsm.backup import BackUp, CancelBackUp, backup_distance, keep_lateral
+from pinky_fsm.backup import (
+    FAILED,
+    BackUp,
+    CancelBackUp,
+    backup_distance,
+    keep_lateral,
+    reason_of,
+)
 from pinky_fsm.geometry import Point, Polyline, Pose, poses_along
 
 # RobotState.STATE_* 와 같은 값
@@ -131,6 +140,15 @@ class _Dock:
     dock_id: str
 
 
+@dataclass
+class _Retreat:
+    """관제가 시킨 물러나기(버전 2 1-A). BackUp 하나를 내고 그 결과로 끝난다."""
+    goal_id: Hashable
+    seq: int
+    since: float
+    allowance_s: float
+
+
 class PinkyFsm:
     def __init__(self, params: FsmParams):
         self.p = params
@@ -162,7 +180,7 @@ class PinkyFsm:
             return RECOVERING
         if self._blocked:
             return BLOCKED
-        if isinstance(self._active, _Move):
+        if isinstance(self._active, (_Move, _Retreat)):
             return MOVING
         if isinstance(self._active, _Dock):
             return DOCKING
@@ -226,6 +244,20 @@ class PinkyFsm:
         cmds = self._end_active(CANCELED, stop=True)
         return cmds + [Finish(goal_id, False, DOCK_UNAVAILABLE)]
 
+    def retreat(self, goal_id: Hashable, now: float, distance_m: float,
+                speed_mps: float) -> list:
+        """뒤로 곧게 distance_m. 달리던 이동과 자가 복구 후진을 먼저 멈춘다."""
+        self._alive = max(self._alive, now)
+        cmds = self._end_active(CANCELED, stop=True)
+        if not (distance_m > 0.0 and speed_mps > 0.0):
+            return cmds + [Finish(goal_id, False, FAILED)]
+        self._bseq += 1
+        allowance = distance_m / speed_mps * 2.0 + 2.0  # 가속·감속과 멈칫거림까지 넉넉히
+        self._active = _Retreat(goal_id, self._bseq, now, allowance)
+        self._backup_running = True
+        self._stopped_since = None
+        return cmds + [BackUp(self._bseq, float(distance_m), float(speed_mps), allowance)]
+
     def cancel(self, goal_id: Hashable, now: float) -> list:
         if not self.is_running(goal_id):
             return []
@@ -265,10 +297,17 @@ class PinkyFsm:
         return self._end_active(NAV_ABORTED, stop=True)
 
     def backup_result(self, seq: int, outcome: str, now: float,
-                      pose: Sequence[float] | None) -> list:
-        """BackUp 결과. 어떤 결과든(뒤에 물체, 시간 초과 포함) 지도를 비우고 남은 선을
-        다시 따른다."""
+                      pose: Sequence[float] | None, error_code: int = 0) -> list:
+        """BackUp 결과. 자가 복구면 어떤 결과든(뒤에 물체, 시간 초과 포함) 지도를 비우고 남은
+        선을 다시 따른다. 물러나기면 그 결과로 goal을 끝낸다."""
         r, g = self._recovery, self._active
+        if isinstance(g, _Retreat):
+            if g.seq != seq:
+                return []
+            self._backup_running = False
+            self._active = None
+            self._rest = IDLE
+            return [Finish(g.goal_id, outcome == "succeeded", reason_of(outcome, error_code))]
         if r is None or r.backup_seq != seq or not isinstance(g, _Move):
             return []  # 멈춘 BackUp이나 끝난 목표의 결과
         self._backup_running = False
@@ -291,6 +330,10 @@ class PinkyFsm:
             g = None
         if isinstance(g, _Move) and pose is not None:
             g.s = self._track(g, pose)
+        if (isinstance(g, _Retreat)
+                and now - g.since >= g.allowance_s + self.p.backup_result_grace_s):
+            cmds += self._end_active(TIMEOUT, stop=True)  # BackUp 결과가 오지 않는다
+            g = None
         cmds += self._watch_recovery(now, g, pose, obstacle)
         g = self._active
         cmds += self._watch_obstacle(now, g, pose, speed, obstacle)  # a clear comes first

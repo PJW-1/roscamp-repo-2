@@ -5,7 +5,9 @@
 """
 from __future__ import annotations
 
-from fleet_core.common.commands import DispatchResult
+import math
+
+from fleet_core.common.commands import DispatchResult, RetreatCmd
 from fleet_core.common.validate import checked, clear_problem, text
 from fleet_core.traffic.deadlock import (
     choose_retreat,
@@ -23,8 +25,14 @@ from fleet_core.traffic.mission import (
     OUT_OF_SERVICE,
     PARKED,
     RECOVERING,
+    RETREAT,
+    _Goal,
     _Mission,
 )
+
+# 성공한 물러나기 뒤 확인 시각에 아직 못 놓으면 recover_check_s씩 더 기다리는 횟수(1-A, 추정).
+# 위치 잡음으로 한 보고가 바닥 안이어도 해제 확인(연속 3번)을 다시 모을 시간이다.
+RETREAT_RECHECKS = 5
 
 
 class TrafficRecovery:
@@ -208,9 +216,17 @@ class TrafficRecovery:
         return self._deadlock_members
 
     def _retreat(self, robot: str, cycle: list[str]) -> None:
-        """아직 들어가지 않은 구역 예약을 내놓는다. 실제 후진은 아직 없다."""
+        """아직 들어가지 않은 구역 예약을 내놓는다. 그런 구역이 없으면 진짜로 물러난다(1-A).
+
+        양보할 로봇이 물러날 수 없으면 순환의 다른 로봇을 우선순위가 낮은 차례로 본다.
+        """
         m = self._missions[robot]
         given_up = [zone for zone in self.zones.held_by(robot) if self._off_the_floor(m, zone)]
+        if not given_up:
+            others = sorted((r for r in cycle if r != robot),
+                            key=lambda r: (self._priority(r), r))
+            if any(self._back_off(self._missions[r], cycle) for r in [robot, *others]):
+                return
         if not given_up:
             self._event("ERROR", "DEADLOCK_UNRESOLVED",
                         f"{robot} of {cycle} has no unentered zone to give up", robot)
@@ -219,7 +235,77 @@ class TrafficRecovery:
         if m.goal:
             self._cancel_goal(m)
         self._retreating = (robot, given_up, self._clock() + self.params.recover_check_s)
+        self._retreat_rechecks = 0
         self._event("ERROR", "DEADLOCK_RETREAT", f"{robot} gives up {given_up}", robot)
+
+    def _back_off(self, m: _Mission, cycle: list[str]) -> bool:
+        """버전 2 1-A(제안): 들어온 레인의 시작 지점까지(최대 retreat_max_m) 곧게 후진한다.
+
+        조건: 경로에 지난 지점이 있고 그 구역이 지금 구역과 다르다. 그 구역을 줄 서지 않고
+        바로 잠글 수 있다. 로봇이 그 레인 방향을 retreat_heading_tolerance_deg 안으로 본다
+        (Retreat는 보는 방향 그대로 곧게 간다). 물러난 자리가 지금 쥔 구역 바닥 모두에서 해제
+        거리만큼 떨어진다. 하나라도 아니면 False이고 아무것도 바꾸지 않는다.
+        """
+        if not self.params.real_retreat or m.idx == 0:
+            return False
+        behind, here = m.path[m.idx - 1], m.path[m.idx]
+        spot = self._zone(behind)
+        held = self.zones.held_by(m.name)
+        if spot in held or spot == self._zone(here):
+            return False
+        bx, by = self.site.waypoint_pose(behind)
+        hx, hy = self.site.waypoint_pose(here)
+        lane_yaw = math.atan2(hy - by, hx - bx)
+        turn = abs(math.atan2(math.sin(m.yaw - lane_yaw), math.cos(m.yaw - lane_yaw)))
+        if math.degrees(turn) > self.params.retreat_heading_tolerance_deg:
+            return False
+        distance = min(math.dist((m.x, m.y), (bx, by)), self.params.retreat_max_m)
+        end = (m.x - math.cos(m.yaw) * distance, m.y - math.sin(m.yaw) * distance)
+        clear = self.params.release_distance_m - self.site.half_width
+        if distance <= 0.0 or any(self.site.distance_to_zone(*end, zone) < clear
+                                  for zone in held):
+            return False
+        if not self.zones.request(m.name, spot):
+            self.zones.cancel_request(m.name, spot)  # 바로 못 잠그면 줄에도 서지 않는다
+            return False
+        if m.goal:
+            self._cancel_goal(m)
+        goal_id = self._next_goal_id()
+        m.goal = _Goal(RETREAT, goal_id)
+        self._out.append(RetreatCmd(m.name, goal_id, distance, self.params.retreat_speed_mps))
+        allowance = distance / self.params.retreat_speed_mps * 2.0 + 2.0  # 로봇과 같은 셈
+        self._retreating = (m.name, held, self._clock() + allowance + self.params.recover_check_s)
+        self._retreat_rechecks = 0
+        self._event("ERROR", "DEADLOCK_RETREAT",
+                    f"{m.name} of {cycle} backs off {distance:.2f} m to {behind} and gives up "
+                    f"{held}", m.name)
+        return True
+
+    def on_retreat_result(self, robot, goal_id, success, reason="") -> None:
+        """Retreat가 끝났다. 성공이면 경로 인덱스를 하나 되돌린다(들어온 레인 위로 돌아갔다).
+
+        구역은 여기서 놓지 않는다. 확인 시각(_finish_retreat)에 벗어난 것만 놓는다.
+        """
+        m = self._missions.get(robot)
+        if m:
+            self._cancel_finished(m, goal_id)
+        if m is None or m.goal is None or m.goal.id != goal_id or m.goal.kind != RETREAT:
+            return
+        self._retreat_ended(m, bool(success), reason)
+
+    def _retreat_ended(self, m: _Mission, success: bool, reason: str) -> None:
+        m.goal = None
+        if success:
+            m.idx -= 1
+            m.last_result = "SUCCEEDED"
+            self._retreat_rechecks = RETREAT_RECHECKS
+        else:
+            m.last_result = reason
+            self._event("WARN", "RETREAT_FAILED", f"retreat ended with {reason or 'no reason'}",
+                        m.name)
+        if self._retreating and self._retreating[0] == m.name:
+            robot, zones, _ = self._retreating
+            self._retreating = (robot, zones, self._clock() + self.params.recover_check_s)
 
     def _finish_retreat(self, cycle: list[str]) -> None:
         """멈춘 로봇이 아직 밖에 있는 구역만 놓는다."""
@@ -230,6 +316,11 @@ class TrafficRecovery:
         nothing_released = set(zones) <= set(self.zones.held_by(robot))
         if nothing_released and any(self._off_the_floor(m, zone) for zone in zones):
             # 밖에 있지만 보고가 아직 모자라다. 다음 보고로 확인될 수 있다.
+            self._retreating = (robot, zones, self._clock() + self.params.recover_check_s)
+            return
+        if nothing_released and self._retreat_rechecks > 0:
+            # 물러나기는 성공했다. 확인 때의 보고 하나가 잡음으로 바닥 안일 수 있다(1-A)
+            self._retreat_rechecks -= 1
             self._retreating = (robot, zones, self._clock() + self.params.recover_check_s)
             return
         self._retreating = None

@@ -9,7 +9,14 @@ from dataclasses import replace
 from pathlib import Path
 
 import yaml
-from fleet_core.common.commands import CancelCmd, DispatchResult, DockCmd, MoveCmd, RobotIsolated
+from fleet_core.common.commands import (
+    CancelCmd,
+    DispatchResult,
+    DockCmd,
+    MoveCmd,
+    RetreatCmd,
+    RobotIsolated,
+)
 from fleet_core.common.params import load_params
 from fleet_core.traffic.controller import TrafficController
 from fleet_core.traffic.deadlock import cycle_members, find_cycle, wait_graph
@@ -187,21 +194,27 @@ def test_a_cycle_that_clears_before_the_wait_isolates_nobody():
     assert find_cycle(wait_graph(drive.core.zones)) is None
 
 
-def test_the_fleet_builds_a_cycle_itself_on_crossing_lanes():
-    """FleetManager in SimWorld: two_lane_segments, whose lanes O-BW and BE-R cross (worklog
-    11-06), with basic_orders, seed 3, path mode and gaussian noise. Two robots end up waiting
-    for each other near OUTBOUND with nothing to give up. The third keeps getting moves while
-    they wait, and one of the two is isolated deadlock_unresolved_s after DEADLOCK_UNRESOLVED.
-    """
+def crossing_world(**over):
     data = yaml.safe_load(BASIC.read_text(encoding="utf-8"))
     stock = {}
     for items in data["stock"].values():
         for kind, count in items.items():
             stock[kind] = stock.get(kind, 0) + count
-    world = SimWorld(seed=3, orders=[dict(o) for o in data["orders"]], stock=stock,
-                     robots={n: dict(spec) for n, spec in data["robots"].items()},
-                     site=load_lane_map(TWO_LANE), params=replace(PARAMS, lane_goal_mode="path"),
-                     arm_s_per_item=4.0, swap_step_s=4.0, dock_s=3.0, gaussian_noise=True)
+    return SimWorld(seed=3, orders=[dict(o) for o in data["orders"]], stock=stock,
+                    robots={n: dict(spec) for n, spec in data["robots"].items()},
+                    site=load_lane_map(TWO_LANE),
+                    params=replace(PARAMS, lane_goal_mode="path", **over),
+                    arm_s_per_item=4.0, swap_step_s=4.0, dock_s=3.0, gaussian_noise=True)
+
+
+def test_the_fleet_builds_a_cycle_itself_on_crossing_lanes():
+    """FleetManager in SimWorld: two_lane_segments, whose lanes O-BW and BE-R cross (worklog
+    11-06), with basic_orders, seed 3, path mode and gaussian noise. Two robots end up waiting
+    for each other near OUTBOUND with nothing to give up. The third keeps getting moves while
+    they wait, and one of the two is isolated deadlock_unresolved_s after DEADLOCK_UNRESOLVED.
+    Without the real retreat of version 2 1-A (real_retreat false, as before).
+    """
+    world = crossing_world(real_retreat=False)
     assert world.run_until(lambda: "DEADLOCK_DETECTED" in world.event_codes(), timeout_s=200.0)
     detected_at = world.t
     cycle = set(find_cycle(wait_graph(world.core.zones)))
@@ -221,6 +234,29 @@ def test_the_fleet_builds_a_cycle_itself_on_crossing_lanes():
     moved = [c for t, c in world.commands
              if detected_at < t < isolated_at and isinstance(c, MoveCmd) and c.robot == outside]
     assert moved, f"{outside} is outside the cycle {sorted(cycle)}"
+
+
+def test_on_crossing_lanes_the_robot_that_can_back_off_breaks_the_first_cycle():
+    """버전 2 1-A: 같은 교착에서 양보할 로봇(pinky1)은 레인 시작 지점까지 물러나도 지금 구역
+    바닥에서 해제 거리가 안 된다. 순환의 다른 로봇(pinky2)은 된다. 그 로봇이 곧게 물러나 구역을
+    놓고 pinky1이 지나간다. 이 지도(교차 레인)에서는 그 뒤 두 로봇이 다시 순환을 만들고, 그때는
+    둘 다 물러날 자리가 없어 전처럼 격리로 끝난다(작업 기록 1-A)."""
+    world = crossing_world()
+    assert world.run_until(lambda: "DEADLOCK_DETECTED" in world.event_codes(), timeout_s=200.0)
+    cycle = find_cycle(wait_graph(world.core.zones))
+    assert world.run_until(lambda: "DEADLOCK_RETREAT" in world.event_codes(),
+                           timeout_s=PARAMS.deadlock_grace_s + 1.0)
+    [backed] = [e.robot for e in world.events if e.code == "DEADLOCK_RETREAT"]
+    assert backed in cycle and backed != "pinky1"
+    [cmd] = world.commands_of(RetreatCmd)
+    assert cmd.robot == backed
+    gave_up = world.core.zones.held_by(backed)[0]
+    assert world.run_until(lambda: gave_up not in world.core.zones.held_by(backed),
+                           timeout_s=20.0), "it backed out and gave the zone up"
+    assert "DEADLOCK_UNRESOLVED" not in world.event_codes()
+    pinky1 = world.core.traffic._missions["pinky1"]
+    idx = pinky1.idx
+    assert world.run_until(lambda: pinky1.idx > idx, timeout_s=20.0), "pinky1 goes on"
 
 
 def held_zone(drive, robot):

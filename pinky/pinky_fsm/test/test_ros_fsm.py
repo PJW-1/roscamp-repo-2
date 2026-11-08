@@ -184,3 +184,34 @@ def test_dock_fails_honestly_while_pinky_dock_is_missing(harness):
     _, probe = start(harness)
     res = probe.result(probe.send(Dock.Goal(dock_id="WORK"), client=probe.dock))
     assert res.result.success is False
+
+
+def _retreat_client(probe):
+    from fleet_interfaces.action import Retreat
+    from probe import C
+    from rclpy.action import ActionClient
+    client = ActionClient(probe, Retreat, C.name("retreat", pinky="pinky1"))
+    assert client.wait_for_server(10.0)
+    return client
+
+
+def test_a_retreat_stops_the_move_and_backs_up_with_the_same_backup_code(harness):
+    """버전 2 1-A(계약 0.7-draft 제안): 이동을 멈추고 Nav2 BackUp으로 곧게 물러난다."""
+    from fleet_interfaces.action import Retreat
+    fake, probe = start(harness)
+    move = probe.send(lane_goal(["P-3", "P-4", "P-5"]))
+    assert wait_until(lambda: len(fake.goals) >= 1, 5.0)
+    h = probe.send(Retreat.Goal(distance_m=0.1, speed_mps=0.1), client=_retreat_client(probe))
+    assert probe.result(move, timeout=5.0).result.reason == MoveTo.Result.REASON_CANCELED
+    res = probe.result(h, timeout=10.0).result
+    assert (res.success, res.reason) == (True, "")
+    assert [(d, v) for _, d, v in fake.backups] == [(pytest.approx(0.1), pytest.approx(0.1))]
+
+
+def test_something_behind_ends_a_retreat_with_obstacle_behind(harness):
+    from fleet_interfaces.action import Retreat
+    fake, probe = start(harness)
+    fake.wall_behind_m = 0.01
+    h = probe.send(Retreat.Goal(distance_m=0.1, speed_mps=0.1), client=_retreat_client(probe))
+    res = probe.result(h, timeout=10.0).result
+    assert (res.success, res.reason) == (False, Retreat.Result.REASON_OBSTACLE_BEHIND)

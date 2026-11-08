@@ -20,13 +20,14 @@ from fleet_core.common.commands import (
     MoveCmd,
     PlanCmd,
     ReportOrderCmd,
+    RetreatCmd,
     SwapCmd,
 )
 from fleet_core.common.contract import load_contract, to_ros_qos
 from fleet_core.common.params import load_params
 from fleet_core.manager import FleetManager
 from fleet_core.traffic.lane_map import load_lane_map
-from fleet_interfaces.action import Dock, FillBasket, MoveTo, SwapBasket
+from fleet_interfaces.action import Dock, FillBasket, MoveTo, Retreat, SwapBasket
 from fleet_interfaces.msg import (
     AssignmentArray,
     FleetEvent,
@@ -117,12 +118,14 @@ class FleetManagerNode(Node):
         self._move = {}
         self._dock = {}
         self._plan = {}
+        self._retreat = {}
         for robot in robots:
             self.create_subscription(
                 RobotState, name("robot_state", pinky=robot),
                 partial(self._on_robot_state, robot), self._qos("robot_state"))
             self._move[robot] = ActionClient(self, MoveTo, name("move_to", pinky=robot))
             self._dock[robot] = ActionClient(self, Dock, name("dock", pinky=robot))
+            self._retreat[robot] = ActionClient(self, Retreat, name("retreat", pinky=robot))
             if self.site.free_areas:  # 자유 구역이 있는 지도만(버전 2 F-1, 계약 0.6-draft 제안)
                 self._plan[robot] = ActionClient(self, ComputePathToPose,
                                                  name("compute_path_to_pose", pinky=robot))
@@ -235,6 +238,9 @@ class FleetManagerNode(Node):
         elif isinstance(command, DockCmd):
             self._send(self._dock[command.robot], adapters.dock_goal(command),
                        (command.robot, command.goal_id), self._dock_done, self._robot_rejected)
+        elif isinstance(command, RetreatCmd):
+            self._send(self._retreat[command.robot], adapters.retreat_goal(command),
+                       (command.robot, command.goal_id), self._retreat_done, self._robot_rejected)
         elif isinstance(command, FillCmd):
             server = self.site.stations[command.station_id].server
             self._send(self._fill[command.station_id], adapters.fill_goal(command),
@@ -345,6 +351,9 @@ class FleetManagerNode(Node):
 
     def _move_done(self, key, result) -> None:
         self.core.on_move_result(key[0], key[1], *adapters.move_result(result))
+
+    def _retreat_done(self, key, result) -> None:
+        self.core.on_retreat_result(key[0], key[1], *adapters.retreat_result(result))
 
     def _dock_done(self, key, result) -> None:
         self.core.on_dock_result(key[0], key[1], *adapters.dock_result(result))

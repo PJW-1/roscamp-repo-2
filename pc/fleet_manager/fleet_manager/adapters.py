@@ -9,7 +9,7 @@ import math
 from action_msgs.msg import GoalStatus
 from builtin_interfaces.msg import Time
 from fleet_core.common.commands import OrderRecord
-from fleet_interfaces.action import Dock, FillBasket, MoveTo, SwapBasket
+from fleet_interfaces.action import Dock, FillBasket, MoveTo, Retreat, SwapBasket
 from fleet_interfaces.msg import (
     Assignment,
     AssignmentArray,
@@ -108,6 +108,10 @@ def move_result(result) -> tuple[bool, str]:
     return result.success, result.reason
 
 
+def retreat_result(result) -> tuple[bool, str]:
+    return result.success, result.reason
+
+
 def dock_result(result) -> tuple[bool, float, float, float]:
     return result.success, result.error_x_cm, result.error_y_cm, result.error_yaw_deg
 
@@ -199,6 +203,11 @@ def plan_points(response) -> list[tuple[float, float]] | None:
 
 def dock_goal(cmd) -> Dock.Goal:
     return Dock.Goal(dock_id=cmd.dock_id)
+
+
+def retreat_goal(cmd) -> Retreat.Goal:
+    """관제가 시키는 물러나기(버전 2 1-A, 계약 0.7-draft 제안)."""
+    return Retreat.Goal(distance_m=float(cmd.distance_m), speed_mps=float(cmd.speed_mps))
 
 
 def fill_goal(cmd) -> FillBasket.Goal:

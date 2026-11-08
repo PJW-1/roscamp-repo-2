@@ -16,6 +16,7 @@ from fleet_core.common.commands import (  # noqa: E402
     OrderRecord,
     PlanCmd,
     ReportOrderCmd,
+    RetreatCmd,
     RobotStatusView,
     SwapCmd,
     ZoneView,
@@ -27,7 +28,7 @@ from fleet_core.traffic.mission import (  # noqa: E402
     LOCALIZING,
     SELF_RECOVERING,
 )
-from fleet_interfaces.action import Dock, FillBasket, MoveTo, SwapBasket  # noqa: E402
+from fleet_interfaces.action import Dock, FillBasket, MoveTo, Retreat, SwapBasket  # noqa: E402
 from fleet_interfaces.msg import (  # noqa: E402
     Assignment,
     FleetEvent,
@@ -325,3 +326,18 @@ def test_a_plan_result_becomes_points():
 ])
 def test_no_path_an_error_code_or_an_aborted_goal_is_no_path(response):
     assert adapters.plan_points(response) is None
+
+
+# ---- real retreat (version 2 1-A, contract 0.7-draft proposal) -------------------------------
+
+
+def test_a_retreat_command_becomes_a_retreat_goal():
+    goal = adapters.retreat_goal(RetreatCmd("pinky1", 7, 0.3, 0.08))
+    assert isinstance(goal, Retreat.Goal)
+    assert (goal.distance_m, goal.speed_mps) == pytest.approx((0.3, 0.08))
+
+
+def test_a_retreat_result_keeps_its_reason():
+    result = Retreat.Result(success=False, reason=Retreat.Result.REASON_OBSTACLE_BEHIND)
+    assert adapters.retreat_result(result) == (False, "OBSTACLE_BEHIND")
+    assert adapters.retreat_result(Retreat.Result(success=True)) == (True, "")

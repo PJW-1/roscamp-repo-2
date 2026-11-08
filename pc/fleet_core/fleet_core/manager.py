@@ -171,6 +171,13 @@ class FleetManager:
             self.traffic.on_goal_lost(robot, goal_id)
             self._pump()
 
+    def on_retreat_result(self, robot, goal_id, success, reason="") -> None:
+        """Retreat(곧게 후진)의 결과(버전 2 1-A)."""
+        self._input("on_retreat_result", robot, goal_id, success, reason)
+        if not self._robot_refused("retreat result", robot):
+            self.traffic.on_retreat_result(robot, goal_id, success, reason)
+            self._pump()
+
     def on_plan_result(self, robot, plan_id, points) -> None:
         """자유 구역 경로 계산(compute_path_to_pose)의 답. 실패면 points가 None(버전 2 F-1)."""
         self._input("on_plan_result", robot, plan_id, points)

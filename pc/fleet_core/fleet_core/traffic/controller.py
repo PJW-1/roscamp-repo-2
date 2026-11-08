@@ -51,6 +51,7 @@ from fleet_core.traffic.mission import (
     PARKED,
     PLACEMENT_CONFLICT,
     RECOVERING,
+    RETREAT,
     RUN,
     SELF_RECOVERING,
     STALLED,
@@ -104,6 +105,7 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         self._deadlock_since: float | None = None
         self._deadlock_acted = False
         self._retreating: tuple[str, list[str], float] | None = None  # 로봇, 구역, 해제 시각
+        self._retreat_rechecks = 0  # 성공한 물러나기 뒤 확인을 더 기다릴 횟수(1-A)
         self._deadlock_cycle: tuple[str, ...] = ()  # the cycle being handled, in wait order
         # robots on any wait cycle at the last check; the idle watch (H2) skips them
         self._deadlock_members: frozenset[str] = frozenset()
@@ -268,6 +270,9 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         goal = m.goal if m else None
         if goal is None or goal.id != goal_id:
             return
+        if goal.kind == RETREAT:
+            self._retreat_ended(m, False, "REJECTED")  # 다시 보내지 않는다(1-A)
+            return
         m.goal = None
         m.not_sent_warned = False
         if goal.kind == MOVE:
@@ -281,6 +286,9 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
             self._cancel_finished(m, goal_id)
         goal = m.goal if m else None
         if goal is None or goal.id != goal_id:
+            return
+        if goal.kind == RETREAT:
+            self._retreat_ended(m, False, "NOT_SENT")  # 서버가 없다. 전처럼 풀지 못한 교착
             return
         m.goal = None
         if goal.kind == MOVE:
@@ -593,7 +601,8 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         """
         here = self._smoothed(m, now)
         idle = m.goal is None and not m.stall_hold
-        if (idle or self._run_mode != RUN or m.block or self._queue_rests(m)
+        retreating = m.goal is not None and m.goal.kind == RETREAT  # 관제가 시킨 물러나기(1-A)
+        if (idle or self._run_mode != RUN or retreating or m.block or self._queue_rests(m)
                 or m.robot_state == SELF_RECOVERING):
             m.stall_from = None
             return
@@ -701,6 +710,10 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
             after = self._zone_after(m, following)
             if after is not None:
                 needed.add(after)
+        if m.goal is not None and m.goal.kind == RETREAT and m.idx > 0:
+            # 물러나는 동안은 들어온 레인의 시작 지점 구역이 "다음"이다(1-A). 잠근 때 로봇은 아직
+            # 그 바닥 밖이라 지난 구역으로 보고 놓으면 안 된다
+            needed.add(self._zone(m.path[m.idx - 1]))
         return needed | set(m.borrowed)
 
     def _zone_after(self, m: _Mission, zone: str) -> str | None:

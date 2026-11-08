@@ -25,6 +25,7 @@ from fleet_core.common.commands import (
     OrderRecord,
     PlanCmd,
     ReportOrderCmd,
+    RetreatCmd,
     SwapCmd,
 )
 from fleet_core.common.params import load_params
@@ -67,7 +68,7 @@ class VirtualRobot:
     speed: float
     noise: float
     goal_id: int | None = None
-    goal_kind: str = ""  # 이동 또는 도킹
+    goal_kind: str = ""  # 이동, 도킹 또는 물러나기(retreat)
     target: tuple[float, float] | None = None
     goal_elapsed: float = 0.0
     dock_left: float = 0.0
@@ -90,6 +91,7 @@ class VirtualRobot:
     drift: float = 0.0  # 보고를 진행 방향 왼쪽으로 미는 거리, 실제 위치는 그대로
     bad_paths: int = 0  # 다음 path 목표 몇 개를 옆으로 밀린 채 받는다
     bad_path_offset: float = 0.0
+    retreat_speed: float = 0.0  # 물러나기 속도(버전 2 1-A). 목표는 target
 
 
 @dataclass
@@ -315,6 +317,8 @@ class SimWorld:
             r.goal_elapsed += DT
             if r.goal_kind == "dock":
                 self._drive_dock(r)
+            elif r.goal_kind == "retreat":
+                self._drive_retreat(r)
             else:
                 self._drive_move(r)
 
@@ -356,6 +360,29 @@ class SimWorld:
         elif dist > 0:
             r.x += dx / dist * min(step, dist)
             r.y += dy / dist * min(step, dist)
+
+    def _drive_retreat(self, r):
+        """보는 방향 그대로 뒤로 곧게(heading은 그대로). 남은 길에서 몸이 다른 로봇에 닿으면
+        그 자리에 서서 OBSTACLE_BEHIND(Nav2 BackUp, FakePinky와 같은 검사)."""
+        if r.stuck:
+            return  # 끝나지 않는다. 관제는 제 기한(_retreating)으로 본다
+        tx, ty = r.target
+        for o in self.virtual.values():
+            if o is r or o.removed:
+                continue
+            gap = _point_segment(o.x, o.y, r.x, r.y, tx, ty)
+            if (gap <= 2 * self.params.robot_radius_m
+                    and gap < math.dist((o.x, o.y), (r.x, r.y)) - 1e-9):
+                self._finish_goal(r, self.core.on_retreat_result, False, "OBSTACLE_BEHIND")
+                return
+        dist = math.dist((r.x, r.y), (tx, ty))
+        step = r.retreat_speed * DT
+        if dist <= step:
+            r.x, r.y = tx, ty
+            self._finish_goal(r, self.core.on_retreat_result, True, "")
+        else:
+            r.x += (tx - r.x) / dist * step
+            r.y += (ty - r.y) / dist * step
 
     def _drive_dock(self, r):
         r.dock_left -= DT
@@ -439,7 +466,7 @@ class SimWorld:
             y += math.cos(r.heading) * r.drift
             self.reported[r.name] = (x, y)
             state = "BLOCKED" if r.blocked else "MOVING" if r.goal_id else "IDLE"
-            self.core.on_robot_state(r.name, x, y, 0.0, state)
+            self.core.on_robot_state(r.name, x, y, r.heading, state)
 
     # ---- commands -----------------------------------------------------------------------
 
@@ -463,6 +490,8 @@ class SimWorld:
             self._cancel(item)
         elif isinstance(item, PlanCmd):
             self._plan(item)
+        elif isinstance(item, RetreatCmd):
+            self._start_retreat(item)
         else:
             raise AssertionError(f"unknown output {item!r}")
 
@@ -488,6 +517,9 @@ class SimWorld:
         old = r.goal_id
         if r.goal_kind == "move":
             self._queued_results.append((r.name, self.core.on_move_result,
+                                         (r.name, old, False, "CANCELED")))
+        elif r.goal_kind == "retreat":
+            self._queued_results.append((r.name, self.core.on_retreat_result,
                                          (r.name, old, False, "CANCELED")))
         else:
             self._queued_results.append((r.name, self.core.on_dock_result,
@@ -563,6 +595,21 @@ class SimWorld:
         self._queued_results.append((r.name, self.core.on_move_result,
                                      (r.name, cmd.goal_id, False, "PATH_NOT_CONNECTED")))
         return True
+
+    def _start_retreat(self, cmd):
+        r = self.virtual[cmd.robot]
+        if not r.comm_up or r.removed:
+            return
+        assert 0.0 < cmd.distance_m <= self.params.retreat_max_m + 1e-9, f"{cmd} distance"
+        self._preempt(r)
+        r.docked_at = ""
+        r.goal_id = cmd.goal_id
+        r.goal_kind = "retreat"
+        r.target = (r.x - math.cos(r.heading) * cmd.distance_m,
+                    r.y - math.sin(r.heading) * cmd.distance_m)
+        r.via = []
+        r.retreat_speed = cmd.speed_mps
+        r.goal_elapsed = 0.0
 
     def _start_dock(self, cmd):
         r = self.virtual[cmd.robot]

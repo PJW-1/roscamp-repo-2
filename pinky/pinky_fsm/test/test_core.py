@@ -839,3 +839,63 @@ def test_distance_remaining_follows_the_path():
     assert fsm.distance_remaining((0.35, 1.75, NORTH)) == pytest.approx(
         0.20 + math.dist(P4, P5))
     assert fsm.distance_remaining(None) == pytest.approx(0.40 + math.dist(P4, P5))
+
+
+# ---- 버전 2 1-A: 관제가 시키는 물러나기(Retreat, 계약 0.7-draft 제안) ----------------------
+
+
+def test_a_retreat_stops_the_move_first_then_backs_up_straight():
+    fsm = ready()
+    move(fsm, "g1", 0.0)
+    cmds = fsm.retreat("r1", 1.0, 0.3, 0.1)
+    assert kinds(cmds)[:2] == ["Finish", "CancelNav"], "이동을 먼저 멈춘다(둘 다 cmd_vel)"
+    assert cmds[0] == Finish("g1", False, CANCELED)
+    (b,) = backups(cmds)
+    assert (b.distance_m, b.speed_mps) == (0.3, 0.1)
+    assert b.time_allowance_s >= 0.3 / 0.1
+    assert fsm.state() == MOVING and fsm.is_running("r1")
+
+
+@pytest.mark.parametrize(("outcome", "code", "success", "reason"), [
+    ("succeeded", 0, True, ""),
+    ("aborted", 714, False, "OBSTACLE_BEHIND"),
+    ("aborted", 711, False, "TIMEOUT"),
+    ("canceled", 0, False, "CANCELED"),
+    ("rejected", 0, False, "FAILED"),
+])
+def test_the_retreat_result_comes_from_the_backup_result(outcome, code, success, reason):
+    fsm = ready()
+    (b,) = backups(fsm.retreat("r1", 1.0, 0.3, 0.1))
+    cmds = fsm.backup_result(b.seq, outcome, 2.0, (*P3, NORTH), error_code=code)
+    assert Finish("r1", success, reason) in cmds
+    assert fsm.state() == IDLE and not fsm.is_running("r1")
+
+
+def test_a_canceled_retreat_stops_the_backup():
+    fsm = ready()
+    fsm.retreat("r1", 1.0, 0.3, 0.1)
+    cmds = fsm.cancel("r1", 1.5)
+    assert Finish("r1", False, CANCELED) in cmds and CancelBackUp() in cmds
+
+
+def test_a_retreat_with_no_backup_result_times_out():
+    fsm = ready()
+    (b,) = backups(fsm.retreat("r1", 1.0, 0.3, 0.1))
+    late = 1.0 + b.time_allowance_s + FsmParams().backup_result_grace_s + 0.1
+    fsm.heartbeat(late)  # 관제는 살아 있다
+    cmds = fsm.tick(late, (*P3, NORTH), STILL, no_obstacle)
+    assert Finish("r1", False, TIMEOUT) in cmds and CancelBackUp() in cmds
+
+
+@pytest.mark.parametrize(("distance", "speed"), [(0.0, 0.1), (0.3, 0.0), (-0.1, 0.1)])
+def test_a_retreat_that_cannot_move_fails_at_once(distance, speed):
+    fsm = ready()
+    cmds = fsm.retreat("r1", 1.0, distance, speed)
+    assert cmds[-1] == Finish("r1", False, "FAILED") and not backups(cmds)
+
+
+def test_a_new_move_during_a_retreat_stops_the_backup():
+    fsm = ready()
+    fsm.retreat("r1", 1.0, 0.3, 0.1)
+    cmds = move(fsm, "g2", 1.5)
+    assert Finish("r1", False, CANCELED) in cmds and CancelBackUp() in cmds

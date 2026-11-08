@@ -14,7 +14,7 @@ def test_no_box_gives_a_dense_straight_line():
     points = plan_path((1.0, 0.6), (2.0, 0.6))
     assert points[0] == (1.0, 0.6) and points[-1] == (2.0, 0.6)
     assert all(abs(y - 0.6) < 1e-9 for _, y in points)
-    assert max(math.dist(a, b) for a, b in zip(points, points[1:])) <= 0.05 + 1e-9
+    assert max(math.dist(a, b) for a, b in zip(points, points[1:], strict=False)) <= 0.05 + 1e-9
 
 
 def test_a_box_on_the_line_is_passed_with_clearance_inside_the_floor():
@@ -71,6 +71,8 @@ def test_points_outside_every_area_have_no_floor():
 
 def test_a_gate_just_off_the_edge_still_counts():
     assert area_polygon({"W": WEST}, (0.5, 1.04), (0.5, 0.2), 0.05) == WEST
+    assert area_polygon({"W": WEST}, (0.5, 1.05), (0.5, 0.2), 0.05) == WEST, "경계 그 자리"
+    assert area_polygon({"W": WEST}, (0.5, 1.06), (0.5, 0.2), 0.05) is None, "경계 바로 밖"
 
 
 def test_the_area_that_really_holds_both_points_wins_over_a_near_one():

@@ -1,0 +1,16 @@
+# 제안(팀 합의 전, 계약 0.7-draft, FMS 개선 계획 버전 2 1-A): 관제가 시키는 물러나기.
+# 로봇이 보는 방향 그대로 뒤로 곧게 distance_m을 speed_mps로 간다(Nav2 BackUp, 자가 복구와 같은 실행 코드).
+# 받으면 달리던 이동(FollowPath)을 먼저 멈춘다. 이동 goal은 CANCELED로 끝난다.
+float32 distance_m
+float32 speed_mps
+---
+string REASON_OBSTACLE_BEHIND="OBSTACLE_BEHIND"
+string REASON_TIMEOUT="TIMEOUT"
+string REASON_CANCELED="CANCELED"
+# 제안: 계획서에 없는 값. 서버 없음, 잘못된 입력 같은 그 밖의 실패
+string REASON_FAILED="FAILED"
+
+bool success
+string reason
+---
+float32 distance_traveled

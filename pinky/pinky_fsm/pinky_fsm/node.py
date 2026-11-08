@@ -1,7 +1,7 @@
 """pinky_fsm 노드. 핑키 한 대의 move_to, dock을 받아 Nav2 FollowPath로 넘기고 상태를 보고한다.
 
 판단은 모두 core.PinkyFsm이 한다. 이 파일은 ROS와 잇기만 한다.
-- 액션 서버: 계약의 move_to(MoveTo), dock(Dock)
+- 액션 서버: 계약의 move_to(MoveTo), dock(Dock), retreat(Retreat, 버전 2 1-A, 계약 0.7-draft 제안)
 - 발행: 계약의 robot_state(RobotState, 기본 10 Hz)
 - 구독: 계약의 heartbeat, odom(속도), local costmap(BLOCKED 판단)
 - 액션 클라이언트: Nav2 controller의 follow_path(FollowPath), behavior_server의
@@ -20,7 +20,7 @@ from functools import partial
 
 import rclpy
 from action_msgs.msg import GoalStatus
-from fleet_interfaces.action import Dock, MoveTo
+from fleet_interfaces.action import Dock, MoveTo, Retreat
 from fleet_interfaces.msg import RobotState
 from geometry_msgs.msg import Pose2D, PoseStamped
 from nav2_msgs.action import FollowPath
@@ -56,6 +56,7 @@ FEEDBACK_PERIOD_S = 0.2
 UNKNOWN_BATTERY = -1.0  # 배터리 토픽이 없을 때. 관제는 보여 주기만 한다
 _OUTCOME = {GoalStatus.STATUS_SUCCEEDED: "succeeded", GoalStatus.STATUS_ABORTED: "aborted",
             GoalStatus.STATUS_CANCELED: "canceled"}
+_RESULT = {"move": MoveTo.Result, "dock": Dock.Result, "retreat": Retreat.Result}
 _FLOAT_PARAMS = (
     "arrival_tolerance_m", "connect_tolerance_m", "refresh_within_m", "refresh_every_s",
     "heartbeat_timeout_s", "stopped_speed_mps", "stopped_turn_rps", "block_report_s",
@@ -154,6 +155,8 @@ class PinkyFsmNode(Node):
                                          "move", group)
         self._dock_server = self._server(Dock, contract.name("dock", pinky=self.robot_id),
                                          "dock", group)
+        self._retreat_server = self._server(
+            Retreat, contract.name("retreat", pinky=self.robot_id), "retreat", group)
         # 판단과 보고는 벽시계로 돈다(heartbeat는 벽시계로 재야 하고, 시뮬 시계가 멈춰도 보고한다)
         steady = Clock(clock_type=ClockType.STEADY_TIME)
         self.create_timer(1.0 / float(get("control_rate_hz").value), self._tick,
@@ -184,6 +187,7 @@ class PinkyFsmNode(Node):
         self.stop()
         self._move_server.destroy()
         self._dock_server.destroy()
+        self._retreat_server.destroy()
         self._nav.destroy()
         self._backup.destroy()
         return super().destroy_node()
@@ -250,6 +254,8 @@ class PinkyFsmNode(Node):
                 t = req.target_pose
                 path = [(p.position.x, p.position.y) for p in req.path]
                 cmds = self._fsm.move(key, now, req.target_id, (t.x, t.y, t.theta), path, here)
+            elif kind == "retreat":
+                cmds = self._fsm.retreat(key, now, req.distance_m, req.speed_mps)
             else:
                 cmds = self._fsm.dock(key, now, req.dock_id)
             self._run(cmds)
@@ -262,7 +268,7 @@ class PinkyFsmNode(Node):
         while not slot.done.is_set():
             if not (self._alive and rclpy.ok()):
                 _abort_quietly(handle)
-                return MoveTo.Result() if kind == "move" else Dock.Result()
+                return _RESULT[kind]()
             if handle.is_cancel_requested:
                 with self._lock:
                     self._run(self._fsm.cancel(key, time.monotonic()))
@@ -287,6 +293,8 @@ class PinkyFsmNode(Node):
             handle.abort()
         if kind == "move":
             return MoveTo.Result(success=slot.success, reason=slot.reason)
+        if kind == "retreat":
+            return Retreat.Result(success=slot.success, reason=slot.reason)
         if not slot.success:
             self.get_logger().warn(f"dock failed: {slot.reason}")
         return Dock.Result(success=slot.success)
@@ -302,8 +310,8 @@ class PinkyFsmNode(Node):
                 self._cancel_all_nav()
             elif isinstance(cmd, BackUp):
                 self.get_logger().info(
-                    f"self-recovery {self._fsm.recovery_attempts_used}: backup #{cmd.seq} "
-                    f"{cmd.distance_m:.3f} m")
+                    f"backup #{cmd.seq} {cmd.distance_m:.3f} m (self-recovery attempts "
+                    f"{self._fsm.recovery_attempts_used})")
                 if not self._backup.send(cmd.seq, cmd.distance_m, cmd.speed_mps,
                                          cmd.time_allowance_s):
                     self.get_logger().warn("backup server is not available")
@@ -356,7 +364,7 @@ class PinkyFsmNode(Node):
         with self._lock:
             pose = self._pose()
             self._run(self._fsm.backup_result(seq, outcome, time.monotonic(),
-                                              pose[:3] if pose else None))
+                                              pose[:3] if pose else None, error_code))
 
     def _cancel_all_nav(self) -> None:
         for handle in self._nav_handles.values():
