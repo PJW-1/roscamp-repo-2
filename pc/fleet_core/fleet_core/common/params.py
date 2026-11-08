@@ -83,6 +83,9 @@ class FleetParams:
     retreat_max_m: float = 0.4
     retreat_speed_mps: float = 0.08
     retreat_heading_tolerance_deg: float = 30.0
+    # Proposal (version 2 section 4, contract 0.8-draft MoveTo.final_goal): mark goals that end
+    # at a lock boundary as not final. Records without it replay with every move final
+    mark_final_goal: bool = False
 
 
 def load_params(path=None) -> FleetParams:

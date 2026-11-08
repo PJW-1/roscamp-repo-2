@@ -180,7 +180,8 @@ class PinkyFsm:
         # A FollowPath may still be out there: one was sent since the last CancelNav. The latest
         # result does not clear it, since a replaced one may be accepted late.
         self._nav_running = False
-        self._speed_limit = 0.0  # 마지막으로 낸 LimitSpeed
+        # 마지막으로 낸 LimitSpeed. 처음에는 모른다: 재시작 전에 건 제한을 첫 tick에 푼다
+        self._speed_limit: float | None = None
         self._nav_live: set[int] = set()  # 결과가 아직 안 온 FollowPath(seq). 물러나기 전에 비운다
         self._alive = -math.inf  # 마지막 heartbeat나 목표 수락
         self._stopped_since: float | None = None
@@ -533,7 +534,8 @@ class PinkyFsm:
         if isinstance(g, _Move) and not g.final_goal:
             left = max(0.0, g.route.length - g.s)
             v = max(self.p.horizon_min_mps, math.sqrt(2.0 * self.p.horizon_decel_mps2 * left))
-            limit = round(v, 2) if v < self.p.horizon_cap_mps else 0.0
+            # 내려서 자른다. 올려 반올림하면 √(2·a·d)를 넘는다
+            limit = math.floor(v * 100.0) / 100.0 if v < self.p.horizon_cap_mps else 0.0
         if limit == self._speed_limit:
             return []
         self._speed_limit = limit

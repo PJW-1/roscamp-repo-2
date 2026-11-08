@@ -1004,3 +1004,18 @@ def test_the_limit_is_lifted_when_the_goal_becomes_final_or_ends():
     assert limits(fsm.tick(1.5, near_p5(0.04), DRIVING, no_obstacle))
     fsm.cancel("g3", 1.6)
     assert limits(fsm.tick(1.7, near_p5(0.04), STILL, no_obstacle)) == [0.0]
+
+
+def test_a_fresh_fsm_lifts_any_limit_left_from_before_a_restart():
+    """horizon 1 Codex 검수 2: 재시작 전 FSM이 건 제한이 controller에 남아 있을 수 있다."""
+    fsm = PinkyFsm(FsmParams())
+    assert limits(fsm.tick(0.0, (*P3, NORTH), STILL, no_obstacle)) == [0.0]
+    assert limits(fsm.tick(0.1, (*P3, NORTH), STILL, no_obstacle)) == []
+
+
+@pytest.mark.parametrize("back_m", [0.135, 0.07, 0.03])
+def test_the_limit_never_rounds_above_what_can_stop(back_m):
+    fsm = ready()
+    fsm.move("g1", 1.0, "P-5", (*P5, 0.2), [P3, P4, P5], (*P3, NORTH), final_goal=False)
+    [v] = limits(fsm.tick(1.2, near_p5(back_m), DRIVING, no_obstacle))
+    assert v <= math.sqrt(2 * 0.25 * fsm.distance_remaining(near_p5(back_m))) + 1e-12

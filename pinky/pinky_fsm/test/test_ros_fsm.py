@@ -233,4 +233,4 @@ def test_a_final_goal_publishes_no_speed_limit(harness):
     fake, probe = start(harness)
     assert probe.result(probe.send(lane_goal(["P-3", "P-4"]))).result.success is True
     time.sleep(0.3)
-    assert fake.speed_limits == []
+    assert all(v == 0.0 for v in fake.speed_limits), "처음에 푸는 0만 있다"
