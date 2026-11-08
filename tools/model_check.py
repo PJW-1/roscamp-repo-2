@@ -4,8 +4,9 @@
     python3 tools/model_check.py --map sim/fake_robots/maps/oneway_shortcut.yaml \
         --robots 3 --bundle off
 
-상태는 로봇마다 임무 단계, 남은 경로, 진행 중인 goal, 위치와 구역 잠금, 열린 호출 수다.
-주문은 상태에 없다. 매 단계에서 아래 중 하나가 일어나고, 이어서 코어가 tick을 한 번 돈다.
+상태는 로봇마다 임무 단계, 남은 경로, 진행 중인 goal, 위치, 빌린 구역(버전 2)과 구역 잠금,
+열린 호출 수다. 주문은 상태에 없다. 매 단계에서 아래 중 하나가 일어나고, 이어서 코어가 tick을
+한 번 돈다.
 
     open call       로봇을 지정하지 않은 dispatch(WORK), 로봇당 최대 하나
     cancel call     열린 호출에 대한 dispatch_cancel
@@ -75,7 +76,10 @@ from fleet_core.traffic.mission import DOCK, MOVE, _Block, _Dispatch, _Goal  # n
 PAST = 0.01  # 로봇이 지나갈 때 d를 얼마나 넘어서 보고하는가
 NAMED = 100  # 이름 지정 dispatch의 goal id는 여기서 시작해 열린 호출의 id와 겹치지 않는다
 CHUNK = 500  # 프로세스 여럿이 일할 때 job 하나의 상태 수
-ROBOT_FIELDS = 14  # 상태에서 로봇 하나를 나타내는 부분의 길이
+# 상태에서 로봇 하나를 나타내는 부분. capture와 restore가 이 순서를 쓴다.
+ROBOT_FIELD_NAMES = ("phase", "path", "idx", "dest", "goal", "settle", "called", "station",
+                     "hold", "await_pick", "pose", "counted", "block", "detour", "borrowed")
+ROBOT_FIELDS = len(ROBOT_FIELD_NAMES)
 
 
 class Model:
@@ -147,7 +151,8 @@ class Model:
                 detour = (m.detour_at, m.detour_avoid)
             robots.append((m.phase, tuple(m.path[first:]), m.idx - first, m.dest, goal, settle,
                            m.called, m.dispatch.station_id if m.dispatch else None, m.hold,
-                           m.await_pick, self.pose[name], counted, block, detour))
+                           m.await_pick, self.pose[name], counted, block, detour,
+                           tuple(sorted(m.borrowed))))
         zones = core.zones
         holders = tuple(sorted((z, h) for z, h in zones._holder.items() if h))
         requests = sorted(zones._arrived.items(), key=lambda item: item[1])
@@ -169,7 +174,8 @@ class Model:
         for number, name in enumerate(self.names):
             m = core._missions[name]
             (m.phase, path, m.idx, m.dest, goal, m.settle_idx, m.called, station, m.hold,
-             m.await_pick, self.pose[name], counted, block, detour) = state[number]
+             m.await_pick, self.pose[name], counted, block, detour, borrowed) = state[number]
+            m.borrowed = set(borrowed)
             m.path = list(path)
             m.goal = _Goal(goal[0], 1, goal[1], goal[2]) if goal else None
             m.dispatch = _Dispatch(NAMED + number, station) if station else None

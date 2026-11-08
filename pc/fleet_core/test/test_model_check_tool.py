@@ -227,3 +227,19 @@ def test_a_blocked_robot_stops_and_drives_again_when_it_clears(small_map):
     model.apply(("unblock", name))
     m = model.core._missions[name]
     assert m.block is None and m.goal is not None
+
+
+def test_a_state_carries_the_borrowed_zones_of_each_robot(small_map):
+    """V2-0 6번: 빌린 구역(1-C)도 상태의 일부다. 로봇 부분의 길이는 이름 목록에서 나온다."""
+    model = model_check.Model(load_lane_map(small_map), 1, start=["W"], params=POINT)
+    assert model_check.ROBOT_FIELDS == len(model_check.ROBOT_FIELD_NAMES)
+    state = model.capture()
+    assert len(state[0]) == model_check.ROBOT_FIELDS
+    m = model.core._missions["r1"]
+    m.borrowed = {"G"}
+    with_borrowed = model.capture()
+    assert with_borrowed != state
+    model.restore(state)
+    assert m.borrowed == set()
+    model.restore(with_borrowed)
+    assert m.borrowed == {"G"}
