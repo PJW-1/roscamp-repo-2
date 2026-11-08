@@ -312,10 +312,17 @@ class TrafficRecovery:
         """기한까지 물러나기 결과가 없다. 취소를 한 번 보내고, 끝났다는 결과(또는 잃음)가 올
         때까지 goal을 열어 둔다. 그동안 뒤 구역도 쥔 구역도 놓지 않는다(1-A 재검수 3)."""
         robot, zones, _ = self._retreating
-        goal = self._missions[robot].goal
-        if self._retreat_cancel != goal.id:
-            self._retreat_cancel = goal.id
-            self._out.append(CancelCmd(robot, goal.id))
+        m = self._missions[robot]
+        if self._retreat_cancel != m.goal.id:
+            self._retreat_cancel = m.goal.id
+            self._retreat_cancel_at = self._clock()
+            self._out.append(CancelCmd(robot, m.goal.id))
+        elif self._clock() - self._retreat_cancel_at >= self.params.deadlock_unresolved_s:
+            # 취소에도 아무 답이 없다. 잃은 것과 같이 구역을 쥔 채 격리한다(1-A 재검수 4).
+            # 그러지 않으면 새 순환을 끝없이 미룬다
+            self._retreat_ended(m, False, "LOST")
+            self._fail(m, "RETREAT_LOST")
+            return
         self._retreating = (robot, zones, self._clock() + self.params.recover_check_s)
 
     def on_retreat_result(self, robot, goal_id, success, reason="") -> None:

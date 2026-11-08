@@ -109,6 +109,7 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         self._retreat_from: tuple[int, tuple[str, ...]] = (0, ())  # _retreating을 시작한 일과 순환
         self._retreat_rechecks = 0  # 성공한 물러나기 뒤 확인을 더 기다릴 횟수(1-A)
         self._retreat_cancel: int | None = None  # 기한이 지나 취소를 보낸 Retreat goal(1-A)
+        self._retreat_cancel_at = 0.0  # 그 취소를 보낸 시각
         self._deadlock_cycle: tuple[str, ...] = ()  # the cycle being handled, in wait order
         # robots on any wait cycle at the last check; the idle watch (H2) skips them
         self._deadlock_members: frozenset[str] = frozenset()

@@ -320,3 +320,21 @@ def test_a_retreat_that_ends_after_the_cycle_went_away_still_gets_its_zone_check
     d.core._check_deadlock(d.now[0])
     assert "PLAZA" not in d.core.zones.held_by("r1")
     assert d.core._retreating is None
+
+
+def test_a_canceled_retreat_that_never_answers_isolates_the_robot():
+    """1-A 재검수 4: 취소 뒤에도 결과도 잃음도 안 오면 deadlock_unresolved_s 뒤 격리한다.
+    그러지 않으면 새 순환을 끝없이 미룬다."""
+    d, m = at_the_gate()
+    retreat(d, m)
+    d.now[0] = d.core._retreating[2] + 0.1
+    d.core._finish_retreat(["r1", "r2"])  # 취소를 보낸다
+    cancel_at = d.now[0]
+    while d.now[0] < cancel_at + d.params.deadlock_unresolved_s + 1.0:
+        d.now[0] = d.core._retreating[2] + 0.1
+        d.core._finish_retreat(["r1", "r2"])
+        if m.fault:
+            break
+    assert m.fault == "ERROR" and m.fault_reason == "RETREAT_LOST"
+    assert d.now[0] >= cancel_at + d.params.deadlock_unresolved_s
+    assert {"PLAZA", "F1"} <= set(d.core.zones.held_by("r1"))
