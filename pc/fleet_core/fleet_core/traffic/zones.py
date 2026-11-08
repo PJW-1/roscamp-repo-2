@@ -66,6 +66,30 @@ class ZoneLocks:
         self._grant(robot, zone)
         return True
 
+    def request_all(self, robot: str, zones) -> bool:
+        """여러 구역을 한꺼번에 요청한다(버전 2 F-1). 모두 줄 수 있을 때만 모두 준다.
+
+        하나라도 안 되면 아무것도 주지 않고 모든 구역의 줄에 선 채로 둔다. 반쯤 잡은 채
+        기다리지 않으므로 이 요청끼리는 점유 대기가 없고, 줄에 서 있으므로 FIFO와 대기
+        그래프(교착 판정)는 지금과 같이 이 로봇을 본다.
+        """
+        zones = list(dict.fromkeys(zones))
+        for zone in zones:
+            if self._holder[zone] != robot and robot not in self._queue[zone]:
+                self._queue[zone].append(robot)
+                self._arrivals += 1
+                self._arrived[(zone, robot)] = self._arrivals
+        if any(self.blockers(robot, zone) for zone in zones):
+            return False
+        for zone in zones:
+            if self._holder[zone] != robot:
+                self._grant(robot, zone)
+        return True
+
+    def requests_of(self, robot: str) -> tuple[str, ...]:
+        """이 로봇이 줄 서 있는 구역들, 요청 순서대로."""
+        return tuple(zone for zone, who in self._arrived if who == robot)
+
     def blockers(self, robot: str, zone: str) -> set[str]:
         """먼저 비켜야 할 로봇: 소유자, 앞선 대기자, 충돌 쌍 구역의 같은 로봇들."""
         if self._holder[zone] == robot:

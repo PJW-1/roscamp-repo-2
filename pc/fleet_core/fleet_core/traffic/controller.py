@@ -691,7 +691,25 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         안전 규칙 "현재 + 다음 구역만"은 여기 한곳에 있다. 빌린 구역은 경로 위에 없어도
         _release_passed_zones가 놓지 않고, _request_next_zone의 조기 반환도 세지 않는다.
         """
-        return {zone for zone in self._upcoming(m) if zone is not None} | set(m.borrowed)
+        current, following = self._upcoming(m)
+        needed = {current} | ({following} if following is not None else set())
+        if following in self.site.free_areas:
+            # 자유 구역은 출구 다음 구역과 함께 잡는다(F-1). 지나는 동안 그것도 "다음"이다
+            after = self._zone_after(m, following)
+            if after is not None:
+                needed.add(after)
+        return needed | set(m.borrowed)
+
+    def _zone_after(self, m: _Mission, zone: str) -> str | None:
+        """경로에서 zone을 지난 뒤 처음 들어가는 다른 구역. 경로가 zone 안에서 끝나면 None."""
+        inside = False
+        for waypoint in m.path[m.idx:]:
+            here = self._zone(waypoint)
+            if here == zone:
+                inside = True
+            elif inside:
+                return here
+        return None
 
     def _holds_ahead(self, m: _Mission, current: str, held) -> bool:
         """현재 구역과 빌린 구역 말고 쥔 구역이 있다. 있으면 다음 구역을 청하지 않는다."""
@@ -787,8 +805,15 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         m.phase = phase
         m.dest = dest
         _, new_next = self._upcoming(m)
+        requests = self.zones.requests_of(m.name)
         if old_next and old_next != new_next:
             self.zones.cancel_request(m.name, old_next)
+        if any(zone in self.site.free_areas for zone in requests):
+            # 자유 구역과 출구 다음 구역을 함께 청했다(F-1). 새 길에 필요 없는 것은 모두 거둔다
+            needed = self._needed_zones(m)
+            for zone in requests:
+                if zone not in needed:
+                    self.zones.cancel_request(m.name, zone)
 
     def _start_dispatch_leg(self, m: _Mission) -> None:
         station = m.dispatch.station_id
@@ -947,7 +972,12 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
             if following is None:  # 새 길은 이 구역 안에서 끝난다
                 m.wait_zone = None
                 return
-        if self.zones.request(m.name, following):
+        if following in self.site.free_areas:
+            granted = self.zones.request_all(
+                m.name, [z for z in (following, self._zone_after(m, following)) if z])
+        else:
+            granted = self.zones.request(m.name, following)
+        if granted:
             m.wait_zone = None
         else:
             self._note_waiting(m, following)

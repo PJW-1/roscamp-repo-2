@@ -16,11 +16,11 @@ from fleet_core.traffic.mission import _Mission
 
 class TrafficReleaseFloor:
     def _check_exit_floor(self) -> None:
-        if not self.params.release_clear_of_floor:
-            return
+        # 이 값이 꺼져 있어도 자유 구역(버전 2)을 떠나는 레인은 본다. _clear_of_floor와 같다
+        every = self.params.release_clear_of_floor
         d = self.params.release_distance_m
         bad = [f"{a} to {b} ends {gap:.3f} m" for a, b, gap in self.site.exit_floor_gaps()
-               if gap < d]
+               if gap < d and (every or self.site.zone_of[a] in self.site.free_areas)]
         if bad:
             raise ValueError(
                 f"lanes leaving a zone must end {d} m (release distance) clear of the rest of "

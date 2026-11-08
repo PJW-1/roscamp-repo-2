@@ -656,7 +656,9 @@ class SimWorld:
                 assert zones.holder(zone) == name
                 owners[zone] = name
             borrowed = self.core.traffic._missions[name].borrowed
-            assert len(set(held) - borrowed) <= 2, f"{name} holds {held}"
+            # 자유 구역은 출구 다음 구역과 함께 쥔다(버전 2 F-1)
+            limit = 3 if set(held) & set(self.site.free_areas) else 2
+            assert len(set(held) - borrowed) <= limit, f"{name} holds {held}"
         inside = {}
         for r in self.virtual.values():
             if r.removed:
