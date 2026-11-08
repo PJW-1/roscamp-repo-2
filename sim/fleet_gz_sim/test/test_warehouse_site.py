@@ -139,14 +139,15 @@ def test_every_blocked_lane_leaves_a_way_around():
             assert exits, f"{one.label}: {tail} has no other exit than {head}"
 
 
-def _reachable(start, shut) -> set:
+def _reachable(lanes, start, shut) -> set:
     """Waypoints a detour from start can reach: no shut lane, no passing through a parking
-    spot (detour.py does not route through the waiting queue)."""
-    parking = set(LANES.parking)
+    spot (detour.py does not route through the waiting queue). A parking spot itself counts
+    as reached, so the queue entrance is a destination like a dock."""
+    parking = set(lanes.parking)
     seen, todo = {start}, [start]
     while todo:
         here = todo.pop()
-        for a, b in LANES.lanes:
+        for a, b in lanes.lanes:
             if a == here and (a, b) not in shut and b not in seen:
                 seen.add(b)
                 if b not in parking:
@@ -154,26 +155,38 @@ def _reachable(start, shut) -> set:
     return seen
 
 
-def docks_cut_off(lane) -> list[tuple[str, str]]:
-    """(tail, dock) pairs a box on lane (and its reverse) cuts off: reachable before, not after."""
+def cut_off(lane, lanes=LANES) -> list[tuple[str, str]]:
+    """(tail, place) pairs a box on lane (and its reverse) cuts off, for every dock and parking
+    spot: reachable from the tail before, not after."""
     a, b = lane
     shut = {(a, b), (b, a)}
-    tails = [a] if (b, a) not in LANES.lanes else [a, b]
-    docks = [station.dock for station in LANES.stations.values()]
-    return [(tail, dock) for tail in tails for dock in docks
-            if dock in _reachable(tail, set()) and dock not in _reachable(tail, shut)]
+    tails = [a] if (b, a) not in lanes.lanes else [a, b]
+    places = [station.dock for station in lanes.stations.values()] + list(lanes.parking)
+    found = []
+    for tail in tails:
+        before, after = _reachable(lanes, tail, set()), _reachable(lanes, tail, shut)
+        found += [(tail, place) for place in places if place in before and place not in after]
+    return found
 
 
-def test_every_blocked_lane_keeps_both_docks_reachable():
-    """Another exit is not enough: through it the robot must still reach WORK and OUTBOUND
-    (Codex review of the portfolio map)."""
+def test_every_blocked_lane_keeps_the_docks_and_the_queue_reachable():
+    """Another exit is not enough: through it a robot at the tail must still reach WORK,
+    OUTBOUND and the waiting queue (Codex reviews of the portfolio map). This holds for a
+    robot that has not taken the lane yet; one that already holds the next zone keeps its path
+    and waits for the box (the fleet picks a detour only when it asks for the next zone)."""
     schedule = obstacles.load_schedule(PKG / "obstacles" / "warehouse.yaml", LANES)
     for one in schedule.obstacles:
-        assert docks_cut_off(one.lane) == [], one.label
+        assert cut_off(one.lane) == [], one.label
 
 
-def test_the_dock_check_catches_an_exit_that_leads_nowhere():
-    """X3 has another exit than E3, so the exit test passes, yet a box on X3->E3 cuts X3 off
-    from both docks."""
-    assert any(lane[0] == "X3" and lane[1] != "E3" for lane in LANES.lanes)
-    assert docks_cut_off(("X3", "E3")) == [("X3", "W"), ("X3", "O")]
+def test_the_check_catches_an_exit_that_leads_nowhere():
+    """A small map of its own: T has another exit than H, so the exit test passes, yet a box on
+    T->H cuts T off from the dock and the queue."""
+    from types import SimpleNamespace
+    lanes = SimpleNamespace(
+        lanes={("T", "H"): 1, ("T", "S"): 1, ("S", "T"): 1, ("H", "D"): 1, ("H", "Q"): 1,
+               ("Q", "D"): 1, ("H", "P-1"): 1},
+        parking=("P-1",), stations={"WORK": SimpleNamespace(dock="D")})
+    assert any(lane[0] == "T" and lane[1] != "H" for lane in lanes.lanes)
+    assert cut_off(("T", "H"), lanes) == [("T", "D"), ("T", "P-1")]
+    assert cut_off(("H", "D"), lanes) == [], "H still reaches D through Q"
