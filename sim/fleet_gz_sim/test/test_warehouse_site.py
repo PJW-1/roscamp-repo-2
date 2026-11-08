@@ -188,6 +188,20 @@ def test_no_box_stands_on_a_queue_lane():
         assert not set(one.lane) & set(LANES.parking), one.label
 
 
+def test_every_box_blocks_only_its_own_lane():
+    """The checks above treat a box as shutting its lane and nothing else. So the box keeps
+    CLEAR_M from every other lane, a queue exit next to a junction included (Codex review of
+    26502c6: C3->C4 at fraction 0.9 would stand in the P-3->C4 exit)."""
+    schedule = obstacles.load_schedule(PKG / "obstacles" / "warehouse.yaml", LANES)
+    for one in schedule.obstacles:
+        own = frozenset(one.lane)
+        for a, b, name in arena.lane_segments(LANES):
+            if frozenset(name.split("-", 1)) == own:
+                continue
+            gap = arena._point_segment((one.x, one.y), a, b)
+            assert gap >= CLEAR_M - EPS, f"{one.label} is {gap:.3f} m from lane {name}"
+
+
 def test_the_check_catches_an_exit_that_leads_nowhere():
     """A small map of its own: T has another exit than H, so the exit test passes, yet a box on
     T->H cuts T off from the dock and the queue."""
