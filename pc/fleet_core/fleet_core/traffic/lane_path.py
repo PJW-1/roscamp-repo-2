@@ -22,6 +22,19 @@ MAX_TURN = math.radians(170.0)  # 이보다 더 꺾이면(거의 유턴) 그대�
 MIN_RADIUS_M = 0.02  # 이보다 작은 원호는 꺾인 점과 다름없어 그대로 둔다(아주 짧은 레인)
 
 
+STEP_M = 0.005  # 원호와 꺾인 선을 이 간격으로 본다
+
+
+def _along(points: list) -> list:
+    """꺾은선 위 STEP_M 간격의 점들(끝점 포함)."""
+    out = [points[0]]
+    for a, b in zip(points, points[1:], strict=False):
+        n = max(1, math.ceil(math.dist(a, b) / STEP_M))
+        out += [(a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n)
+                for k in range(1, n + 1)]
+    return out
+
+
 def round_corners(points: list, roundable: list, radius: float, deviation: float,
                   accept=None) -> list:
     """꺾인 점을 반지름 radius 이하의 원호로 바꾼다(버전 2 4절, 기본 선택 13번 제안).
@@ -138,9 +151,10 @@ class TrafficPath:
         return tuple(out)
 
     def _arc_stays_in(self, points: list):
-        """원호를 써도 되나(안전 쪽). 원호 점과 점 사이 가운데가
+        """원호를 써도 되나(안전 쪽). 원호를 STEP_M 간격으로 본 모든 점이
         - 꺾인 지점이나 앞뒤 점의 구역에 속하고(nearest_waypoint, 다른 구역 로봇처럼 보이지 않게),
-        - 꺾인 지점이 이미 닿은 바닥 말고는 어느 구역 바닥(자유 구역 다각형 포함)에도 들지 않는다.
+        - 꺾인 그대로의 선(접점 - 꺾인 지점 - 접점)이 닿는 바닥 말고는 어느 구역 바닥(자유 구역
+          다각형 포함)에도 들지 않는다.
         """
         site = self.site
 
@@ -152,10 +166,10 @@ class TrafficPath:
 
         def accept(i, arc):
             near = {zone_at(*points[k]) for k in (i - 1, i, i + 1)}
-            allowed = near | floors(*points[i])
-            mids = [((a[0] + b[0]) / 2, (a[1] + b[1]) / 2) for a, b in zip(arc, arc[1:],
-                                                                          strict=False)]
-            return all(zone_at(x, y) in near and floors(x, y) <= allowed for x, y in arc + mids)
+            allowed = set()
+            for x, y in _along([arc[0], points[i], arc[-1]]):
+                allowed |= floors(x, y)
+            return all(zone_at(x, y) in near and floors(x, y) <= allowed for x, y in _along(arc))
         return accept
 
     def _first_ahead(self, m: _Mission, target_idx: int) -> int:

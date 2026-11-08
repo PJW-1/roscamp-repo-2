@@ -562,16 +562,24 @@ class SimWorld:
         r.goal_elapsed = 0.0
 
     def _path_point_ok(self, x, y) -> bool:
-        """레인 위, 자유 구역 바닥, 또는 둥글린 모서리(버전 2 4절) 곁. 둥글린 원호는 레인에서
-        half_width 안이고 꺾인 지점에서 반지름의 1.25배 안에만 있다(접점까지 r·tan(θ/2))."""
-        off = min(_point_segment(x, y, lane.ax, lane.ay, lane.bx, lane.by)
-                  for lane in self.site.lanes.values())
+        """레인 위, 자유 구역 바닥, 또는 둥글린 모서리(버전 2 4절) 곁. 둥글린 원호는 꺾인
+        지점에서 접점 거리 r·tan(θ/2) 안에 있고(가장 길어야 √(d² + 2·R·d), d는 half_width),
+        그 지점에 닿는 레인에서 d 안이다."""
+        lanes = self.site.lanes.values()
+        off = min(_point_segment(x, y, ln.ax, ln.ay, ln.bx, ln.by) for ln in lanes)
         if off < LINE_TOLERANCE_M or self._on_free_floor(x, y):
             return True
-        radius = self.params.corner_radius_m
-        return (radius > 0 and off <= self.site.half_width
-                and min(math.dist((x, y), self.site.waypoint_pose(w))
-                        for w in self.site.zone_of) <= 1.25 * radius)
+        radius, d = self.params.corner_radius_m, self.site.half_width
+        if radius <= 0:
+            return False
+        reach = math.sqrt(d * d + 2 * radius * d) + 1e-3
+        for w in self.site.zone_of:
+            if math.dist((x, y), self.site.waypoint_pose(w)) > reach:
+                continue
+            if any(w in (ln.a, ln.b) and _point_segment(x, y, ln.ax, ln.ay, ln.bx, ln.by) <= d
+                   for ln in lanes):
+                return True
+        return False
 
     def _refuses_path(self, r, cmd) -> bool:
         """핑키의 연결 검사(지시서 7.5). 받은 path가 로봇이 아는 제 자리(보고 자리에서 잡음을

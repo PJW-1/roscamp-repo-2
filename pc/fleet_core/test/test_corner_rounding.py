@@ -202,13 +202,71 @@ def test_simworld_allows_off_lane_path_points_only_beside_a_rounded_corner():
     """horizon 2 Codex 검수: 레인 검사 완화가 모서리와 무관한 잘못된 선까지 받아들이면 안 된다."""
     from dataclasses import replace
 
+    from fleet_core.traffic.lane_map import load_lane_map
     from sim_world import SimWorld
-    world = SimWorld(seed=1)
-    lane = max(world.site.lanes.values(), key=lambda ln: ln.span)
-    mx, my = (lane.ax + lane.bx) / 2, (lane.ay + lane.by) / 2
+    from test_path_connection import FEATURE, FEATURE_ROBOTS
+    world = SimWorld(seed=1, site=load_lane_map(FEATURE), robots=FEATURE_ROBOTS)
+    poses = [world.site.waypoint_pose(w) for w in world.site.zone_of]
+
+    def far_point(ln):  # 레인 위, 모든 지점에서 0.2 m 넘게 떨어진 곳
+        for k in range(1, 20):
+            p = (ln.ax + (ln.bx - ln.ax) * k / 20, ln.ay + (ln.by - ln.ay) * k / 20)
+            if min(math.dist(p, q) for q in poses) > 0.2:
+                return p
+        return None
+    lane = next(ln for ln in world.site.lanes.values() if far_point(ln))
+    mx, my = far_point(lane)
     side = (-lane.uy * 0.04, lane.ux * 0.04)
     assert not world._path_point_ok(mx + side[0], my + side[1]), "레인 가운데 곁은 안 된다"
     near = (lane.bx - lane.ux * 0.05 + side[0], lane.by - lane.uy * 0.05 + side[1])
     assert world._path_point_ok(*near), "꺾인 지점 곁은 된다"
     world.params = replace(world.params, corner_radius_m=0.0)
     assert not world._path_point_ok(*near), "둥글리기를 끄면 안 된다"
+
+
+# ---- horizon 2 재검수 ---------------------------------------------------------------------
+
+
+def test_an_arc_onto_the_floor_of_the_zone_behind_is_not_used_either():
+    """앞뒤 지점의 구역이라도 꺾인 그대로의 선이 닿지 않는 그 바닥에는 들지 않는다.
+    A와 같은 구역의 Z(0.93, 0.07)가 모서리 안쪽에 있다."""
+    from fleet_core.traffic.lane_map import LaneMap
+    site = LaneMap({
+        "half_width_m": 0.05, "lane_entry_m": 0.25, "origin_m": [0.0, 0.0],
+        "waypoints": [{"id": "A", "x": 0.0, "y": 0.0}, {"id": "B", "x": 1.0, "y": 0.0},
+                      {"id": "C", "x": 1.0, "y": 1.0}, {"id": "Z", "x": 0.93, "y": 0.07}],
+        "lanes": [{"from": "A", "to": "B"}, {"from": "B", "to": "C"},
+                  {"from": "A", "to": "Z"}],
+        "units": {"BEHIND": ["A", "Z"]},
+    })
+    line = [site.waypoint_pose(w) for w in ("A", "B", "C")]
+    arc = [p for p in round_corners(line, [False, True, False], 0.12, 0.05) if p not in line]
+    assert any(site.distance_to_zone(*p, "BEHIND") == 0.0 for p in arc), "시험 전제"
+    assert not arc_check(site)(line)(1, arc)
+
+
+def test_simworld_only_takes_off_lane_points_beside_a_lane_of_the_near_waypoint():
+    from sim_world import SimWorld
+    world = SimWorld(seed=1)
+    w = next(iter(world.site.zone_of))
+    x, y = world.site.waypoint_pose(w)
+    incident = [ln for ln in world.site.lanes.values() if w in (ln.a, ln.b)]
+    others = [ln for ln in world.site.lanes.values() if w not in (ln.a, ln.b)]
+    # w에서 0.1 m 안에 있고 w의 레인에서 0.04 m 떨어진 점은 된다
+    ln = incident[0]
+    ux, uy = (ln.ux, ln.uy) if ln.a == w else (-ln.ux, -ln.uy)
+    ok = (x + ux * 0.08 - uy * 0.04, y + uy * 0.08 + ux * 0.04)
+    assert world._path_point_ok(*ok)
+    assert others, "시험 전제"
+
+
+def test_the_simworld_corner_allowance_covers_the_longest_tangent():
+    """접점 거리의 최대는 √(d² + 2·R·d)다(R 반지름, d half_width)."""
+    import math as m
+    for d, r in ((0.05, 0.12), (0.12, 0.12), (0.05, 0.3)):
+        worst = 0.0
+        for deg in range(2, 170):
+            h = m.radians(deg) / 2
+            radius = min(r, d / (1 / m.cos(h) - 1))
+            worst = max(worst, radius * m.tan(h))
+        assert worst <= m.sqrt(d * d + 2 * r * d) + 1e-9
