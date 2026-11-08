@@ -42,10 +42,11 @@ class ZoneLocks:
         self._added.add(zone)
 
     def remove_zone(self, zone: str) -> bool:
-        """add_zone으로 더한 구역을 지운다. 쥐었거나 기다리는 로봇이 있으면 거절한다."""
+        """add_zone으로 더한 구역을 지운다. 쥐었거나 기다리거나 빌리려는 로봇이 있으면 거절한다."""
         if zone not in self._added:
             raise ValueError(f"zone {zone} was not added at run time")
-        if self._holder[zone] is not None or self._queue[zone]:
+        if (self._holder[zone] is not None or self._queue[zone]
+                or any(zone in wanted for wanted in self._borrowing.values())):
             return False
         for other in self._conflicts.pop(zone):
             self._conflicts[other].discard(zone)
@@ -170,6 +171,7 @@ class ZoneLocks:
         return True
 
     def cancel_all_requests(self, robot: str) -> None:
+        self.withdraw(robot)
         for zone in self._queue:
             self.cancel_request(robot, zone)
 

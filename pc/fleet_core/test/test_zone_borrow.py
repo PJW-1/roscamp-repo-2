@@ -91,3 +91,43 @@ def test_touching_uses_the_release_rule():
         near = site.distance_to_zone(*point, zone) + site.half_width < 0.2
         assert near is expected
         assert (zone in site.zones_touched([point], 0.05, 0.2)) is expected
+
+
+def test_a_path_through_a_free_area_touches_its_cell_units_too():
+    """칸 모드의 잠금 단위는 칸과 진입 레인이다(1-C 1 검수 지적 1). 칸은 상자 거리 그대로 잰다."""
+    from pathlib import Path
+    maps = Path(__file__).resolve().parents[3] / "sim" / "fake_robots" / "maps"
+    site = load_lane_map(str(maps / "feature_map_free.yaml"))
+    touched = site.zones_touched([(1.35, 1.15), (1.35, 0.25)], 0.05, 0.2)  # F1 -> G3 -> G4 -> P-1
+    assert {"PLAZA/0,0", "PLAZA/1,0", "PLAZA/>G3"} <= touched
+    assert "PLAZA/2,0" not in touched  # x 1.70~: 경로에서 0.35 m
+
+
+def test_a_zone_crossed_between_two_samples_is_still_touched():
+    """점 간격 안에서 중심선을 가로질러도 빠지지 않는다(지적 2). 점 사이 거리의 반을 더 본다."""
+    site = load_lane_map(None)
+    lane = next(lane for lane in site.lanes.values()
+                if site.zone_of[lane.a] == site.zone_of[lane.b] and lane.span > 0.3)
+    zone = site.zone_of[lane.a]
+    mx, my = (lane.ax + lane.bx) / 2, (lane.ay + lane.by) / 2
+    nx, ny = -lane.uy, lane.ux
+    crossing = [(mx + nx * 0.3, my + ny * 0.3), (mx - nx * 0.3, my - ny * 0.3)]
+    assert zone in site.zones_touched(crossing, 0.7, 0.2)  # 점은 두 끝뿐, 둘 다 0.3 m
+
+
+def test_cancelling_every_request_also_withdraws_a_borrow():
+    z = locks()
+    assert z.request("r2", "A")
+    assert not z.borrow_all("r1", ["A"])
+    z.cancel_all_requests("r1")
+    assert z.borrowing("r1") == ()
+
+
+def test_a_zone_someone_wants_to_borrow_is_not_removed():
+    z = locks()
+    z.add_zone("T1", conflicts=("A",))
+    assert z.request("r2", "A")
+    assert not z.borrow_all("r1", ["T1"])
+    assert z.remove_zone("T1") is False, "빌리려는 로봇이 있으면 지우지 않는다(지적 3)"
+    z.withdraw("r1")
+    assert z.remove_zone("T1") is True

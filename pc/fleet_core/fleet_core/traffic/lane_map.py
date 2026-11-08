@@ -586,17 +586,25 @@ class LaneMap:
         return found
 
     def zones_touched(self, points, sample_m: float, release_m: float) -> set[str]:
-        """경로가 닿는 구역(버전 2 1-C): sample_m 간격 점에서 중심선 기준 release_m보다 가까운
-        구역. 제어기의 _off_the_floor(바닥 거리 + half_width >= release_m이면 놓음)와 같은 기준이다.
-        칸 모드의 칸 잠금 단위는 아직 세지 않는다(자유 구역 이름으로 나온다)."""
+        """경로가 닿는 구역(버전 2 1-C): 제어기의 _off_the_floor가 아직 놓지 않을 거리 안의 구역.
+
+        구역과 진입 레인은 바닥 거리 + half_width, 칸은 상자 거리 그대로 release_m과 비교한다.
+        칸 잠금 단위(cell_units)도 함께 낸다. 경로를 sample_m 이하 간격 점으로 나누고, 점 사이를
+        지나는 부분을 놓치지 않도록 점 간격의 반만큼 더 넓게 본다(더 잡는 쪽)."""
         points = [tuple(float(v) for v in p) for p in points]
-        samples = points[:1]
+        samples, gap = points[:1], 0.0
         for (ax, ay), (bx, by) in zip(points, points[1:], strict=False):
             steps = max(1, math.ceil(math.hypot(bx - ax, by - ay) / sample_m))
+            gap = max(gap, math.hypot(bx - ax, by - ay) / steps)
             samples += [(ax + (bx - ax) * k / steps, ay + (by - ay) * k / steps)
                         for k in range(1, steps + 1)]
-        return {zone for zone in self.zones for x, y in samples
-                if self.distance_to_zone(x, y, zone) + self.half_width < release_m}
+        reach = release_m + gap / 2
+        found = set()
+        for zone in [*self.zones, *self.cell_units()]:
+            pad = 0.0 if self.unit_area(zone) is not None and ">" not in zone else self.half_width
+            if any(self.distance_to_zone(x, y, zone) + pad < reach for x, y in samples):
+                found.add(zone)
+        return found
 
     # ---- conflict pairs -----------------------------------------------------------------------
 
