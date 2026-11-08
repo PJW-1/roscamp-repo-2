@@ -26,9 +26,10 @@ def round_corners(points: list, roundable: list, radius: float, deviation: float
                   accept=None) -> list:
     """꺾인 점을 반지름 radius 이하의 원호로 바꾼다(버전 2 4절, 기본 선택 13번 제안).
 
-    원호의 어느 점도 원래 꺾인 점에서 deviation보다 멀지 않다(그래서 레인에서도). 접점은
-    양쪽 레인의 절반 안이라 이웃 원호와 겹치지 않는다. roundable이 거짓인 점, 처음과 끝,
-    곧거나 거의 유턴인 점은 그대로 둔다. accept(i, 원호 점들)가 거짓이어도 그 점은 둔다.
+    원호는 꺾인 점에서 deviation보다 안쪽으로 들어가지 않는다(꺾인 점과 원호 사이 거리. 레인에서
+    벗어나는 폭은 그보다 작다). 접점은 양쪽 선분의 절반 안이라 이웃 원호와 겹치지 않는다.
+    roundable이 거짓인 점, 처음과 끝, 곧거나 거의 유턴인 점은 그대로 둔다.
+    accept(i, 원호 점들)가 거짓이어도 그 점은 둔다.
     """
     if radius <= 0.0 or len(points) < 3:
         return list(points)
@@ -103,14 +104,17 @@ class TrafficPath:
             return ()
         points = [(m.x, m.y)]
         first = self._first_ahead(m, target_idx)
-        ahead, lane = [], []  # lane: 그 점이 레인 지점인가(자유 구역 경로 점이 아닌가)
+        ahead, lane = [], []  # lane: 그 점이 레인 지점인가(자유 구역 경로 점·출입구가 아닌가)
+        free = self.site.free_lanes
         if first > 0 and (m.path[first - 1], m.path[first]) in m.free_paths:
             # 자유 구역을 지나는 중(버전 2 F-1): 받은 경로에서 로봇 앞 점들
             ahead += self._free_points_ahead(m, (m.path[first - 1], m.path[first]))[:-1]
             lane += [False] * (len(ahead) - len(lane))
         for k in range(first, target_idx + 1):
             ahead.append(self.site.waypoint_pose(m.path[k]))
-            lane.append(True)
+            # 자유 구역 출입구는 레인 지점으로 치지 않는다(받은 경로가 직선뿐이어도)
+            lane.append((k == 0 or (m.path[k - 1], m.path[k]) not in free)
+                        and (k == len(m.path) - 1 or (m.path[k], m.path[k + 1]) not in free))
             key = (m.path[k], m.path[k + 1]) if k < target_idx else None
             if key in m.free_paths:
                 ahead += list(m.free_paths[key][1:-1])  # 받은 경로의 안쪽 점
@@ -120,7 +124,7 @@ class TrafficPath:
             lane.pop(0)
         points += ahead
         lane = [False, *lane]  # 로봇 자리
-        # 앞뒤가 모두 레인 지점인 꺾인 곳만 둥글린다. 자유 구역 경로에 닿은 출입구는 둔다.
+        # 앞뒤가 모두 레인 지점인 꺾인 곳만 둥글린다. 자유 구역 출입구와 그 경로 점은 둔다.
         # 로봇 자리에서 오는 첫 꺾임도 둔다: 보고 위치의 잡음으로 원호가 레인 밖에서 시작한다
         roundable = [0 < i < len(points) - 1 and lane[i - 1] and lane[i] and lane[i + 1]
                      for i in range(len(points))]
@@ -134,14 +138,24 @@ class TrafficPath:
         return tuple(out)
 
     def _arc_stays_in(self, points: list):
-        """원호의 모든 점이 꺾인 지점이나 그 앞뒤 점의 구역에 속하는가(지도의 다른 레인 쪽으로
-        들어가 다른 구역 로봇처럼 보이면 안 된다)."""
+        """원호를 써도 되나(안전 쪽). 원호 점과 점 사이 가운데가
+        - 꺾인 지점이나 앞뒤 점의 구역에 속하고(nearest_waypoint, 다른 구역 로봇처럼 보이지 않게),
+        - 꺾인 지점이 이미 닿은 바닥 말고는 어느 구역 바닥(자유 구역 다각형 포함)에도 들지 않는다.
+        """
+        site = self.site
+
         def zone_at(x, y):
-            return self._zone(self.site.nearest_waypoint(x, y))
+            return self._zone(site.nearest_waypoint(x, y))
+
+        def floors(x, y):
+            return {zone for zone in site.zones if site.distance_to_zone(x, y, zone) <= 0.0}
 
         def accept(i, arc):
             near = {zone_at(*points[k]) for k in (i - 1, i, i + 1)}
-            return all(zone_at(x, y) in near for x, y in arc)
+            allowed = near | floors(*points[i])
+            mids = [((a[0] + b[0]) / 2, (a[1] + b[1]) / 2) for a, b in zip(arc, arc[1:],
+                                                                          strict=False)]
+            return all(zone_at(x, y) in near and floors(x, y) <= allowed for x, y in arc + mids)
         return accept
 
     def _first_ahead(self, m: _Mission, target_idx: int) -> int:

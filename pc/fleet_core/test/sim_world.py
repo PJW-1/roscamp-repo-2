@@ -552,12 +552,7 @@ class SimWorld:
             for step in range(5):
                 x = ax + (bx - ax) * step / 4
                 y = ay + (by - ay) * step / 4
-                off = min(_point_segment(x, y, lane.ax, lane.ay, lane.bx, lane.by)
-                          for lane in self.site.lanes.values())
-                # 둥글린 모서리(버전 2 4절)는 꺾인 점에서 half_width 안이라 레인에서도 그 안이다
-                rounded = self.params.corner_radius_m > 0 and off <= self.site.half_width
-                assert off < LINE_TOLERANCE_M or rounded or self._on_free_floor(x, y), \
-                    f"{cmd} from ({r.x}, {r.y}) leaves the lanes"
+                assert self._path_point_ok(x, y), f"{cmd} from ({r.x}, {r.y}) leaves the lanes"
         self._preempt(r)
         r.docked_at = ""
         r.goal_id = cmd.goal_id
@@ -565,6 +560,18 @@ class SimWorld:
         r.target = (cmd.x, cmd.y)
         r.via = via
         r.goal_elapsed = 0.0
+
+    def _path_point_ok(self, x, y) -> bool:
+        """레인 위, 자유 구역 바닥, 또는 둥글린 모서리(버전 2 4절) 곁. 둥글린 원호는 레인에서
+        half_width 안이고 꺾인 지점에서 반지름의 1.25배 안에만 있다(접점까지 r·tan(θ/2))."""
+        off = min(_point_segment(x, y, lane.ax, lane.ay, lane.bx, lane.by)
+                  for lane in self.site.lanes.values())
+        if off < LINE_TOLERANCE_M or self._on_free_floor(x, y):
+            return True
+        radius = self.params.corner_radius_m
+        return (radius > 0 and off <= self.site.half_width
+                and min(math.dist((x, y), self.site.waypoint_pose(w))
+                        for w in self.site.zone_of) <= 1.25 * radius)
 
     def _refuses_path(self, r, cmd) -> bool:
         """핑키의 연결 검사(지시서 7.5). 받은 path가 로봇이 아는 제 자리(보고 자리에서 잡음을

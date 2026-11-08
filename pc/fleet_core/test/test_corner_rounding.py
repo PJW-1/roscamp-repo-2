@@ -134,3 +134,81 @@ def test_a_full_run_sends_rounded_corners_that_stay_on_the_lane_floor():
             assert off <= world.site.half_width + 1e-9
             arcs += off > 1e-6
     assert arcs > 0, "둥글린 모서리가 실제로 나간다"
+
+
+# ---- horizon 2 Codex 검수 -------------------------------------------------------------------
+
+
+def corner_site(plaza=True):
+    """A(0,0) -> B(1,0) -> C(1,1). 모서리 안쪽에 다른 구역(자유 구역 PLAZA) 바닥의 모서리
+    (0.97, 0.03)이 있다. 꺾인 그대로의 선은 그 바닥에 들지 않지만 원호 가운데는 든다."""
+    from fleet_core.traffic.lane_map import LaneMap
+    data = {
+        "half_width_m": 0.05, "lane_entry_m": 0.25, "origin_m": [0.0, 0.0],
+        "waypoints": [{"id": "A", "x": 0.0, "y": 0.0}, {"id": "B", "x": 1.0, "y": 0.0},
+                      {"id": "C", "x": 1.0, "y": 1.0}],
+        "lanes": [{"from": "A", "to": "B"}, {"from": "B", "to": "C"}],
+    }
+    if plaza:
+        data["waypoints"] += [{"id": "G1", "x": 0.6, "y": 0.2}, {"id": "G2", "x": 0.8, "y": 0.4}]
+        data["free_areas"] = {"PLAZA": {"polygon": [[0.6, 0.03], [0.97, 0.03], [0.97, 0.4],
+                                                    [0.6, 0.4]], "gates": ["G1", "G2"]}}
+    return LaneMap(data)
+
+
+def arc_check(site):
+    from types import SimpleNamespace
+
+    from fleet_core.traffic.lane_path import TrafficPath
+    core = SimpleNamespace(site=site, _zone=lambda w: site.zone_of[w])
+    return lambda points: TrafficPath._arc_stays_in(core, points)
+
+
+def test_an_arc_onto_another_zones_floor_is_not_used():
+    site = corner_site()
+    line = [site.waypoint_pose(w) for w in ("A", "B", "C")]
+    assert all(site.distance_to_zone(x, y, "PLAZA") > 0 for x, y in line)
+    out = round_corners(line, [False, True, False], 0.12, 0.05)
+    arc = [p for p in out if p not in line]
+    assert any(site.distance_to_zone(*p, "PLAZA") == 0.0 for p in arc), "시험 전제"
+    accept = arc_check(site)(line)
+    assert not accept(1, arc)
+    assert round_corners(line, [False, True, False], 0.12, 0.05, accept) == line
+
+
+def test_without_the_other_floor_the_same_corner_is_rounded():
+    site = corner_site(plaza=False)
+    line = [site.waypoint_pose(w) for w in ("A", "B", "C")]
+    assert round_corners(line, [False, True, False], 0.12, 0.05, arc_check(site)(line)) != line
+
+
+def test_gates_of_a_straight_free_crossing_keep_their_sharp_points():
+    """계획이 없어 출입구 사이 직선만 있어도(안쪽 점 없음) 출입구는 둥글리지 않는다."""
+    from dataclasses import replace
+
+    from test_real_retreat import SOUTH, at_the_gate
+    d, m = at_the_gate()
+    d.core.params = replace(d.core.params, corner_radius_m=0.12)
+    m.path, m.idx = ["F1", "G3", "T2", "QO"], 0
+    fx, fy = d.site.waypoint_pose("F1")
+    m.x, m.y, m.yaw = fx, fy - 0.05, SOUTH  # F1을 막 지나 F1이 선에 남는다
+    m.free_paths[("G3", "T2")] = (d.site.waypoint_pose("G3"), d.site.waypoint_pose("T2"))
+    points = [p[:2] for p in d.core._lane_polyline(m, 2, 0.0)]
+    assert d.site.waypoint_pose("F1") in points, "시험 전제: G3은 앞뒤가 지점인 꺾임이다"
+    assert d.site.waypoint_pose("G3") in points
+
+
+def test_simworld_allows_off_lane_path_points_only_beside_a_rounded_corner():
+    """horizon 2 Codex 검수: 레인 검사 완화가 모서리와 무관한 잘못된 선까지 받아들이면 안 된다."""
+    from dataclasses import replace
+
+    from sim_world import SimWorld
+    world = SimWorld(seed=1)
+    lane = max(world.site.lanes.values(), key=lambda ln: ln.span)
+    mx, my = (lane.ax + lane.bx) / 2, (lane.ay + lane.by) / 2
+    side = (-lane.uy * 0.04, lane.ux * 0.04)
+    assert not world._path_point_ok(mx + side[0], my + side[1]), "레인 가운데 곁은 안 된다"
+    near = (lane.bx - lane.ux * 0.05 + side[0], lane.by - lane.uy * 0.05 + side[1])
+    assert world._path_point_ok(*near), "꺾인 지점 곁은 된다"
+    world.params = replace(world.params, corner_radius_m=0.0)
+    assert not world._path_point_ok(*near), "둥글리기를 끄면 안 된다"
