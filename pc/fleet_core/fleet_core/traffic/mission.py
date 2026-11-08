@@ -122,6 +122,7 @@ class _Mission:
     self_recovery_long: bool = False  # 이번 RECOVERING이 self_recovery_limit_s를 넘었다
     free_paths: dict = field(default_factory=dict)  # 가상 레인 (a, b) -> 받은 경로 점들(F-1)
     plan_wait: tuple | None = None  # (가상 레인, plan_id, 청한 시각). 경로 계산 답을 기다린다
+    claims: dict = field(default_factory=dict)  # 자유 구역 -> _Claim, 칸 모드에서 청한 칸 묶음(F-2)
     borrowed: set = field(default_factory=set)  # 빌린 구역(1-C). 경로 밖이어도 쥔다
     detour_at: object = None  # 우회를 고른 지점. 여기를 떠나면 detour_avoid는 뜻이 없다
     detour_avoid: tuple = ()  # 그 지점에서 포기한 다음 구역들. 되돌아가지 않는다

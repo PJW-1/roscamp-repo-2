@@ -90,8 +90,13 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         self.params = params
         self._check_goal_mode()
         self._check_exit_floor()
-        self.zones = ZoneLocks(site.zones, clock, site.conflict_pairs(
-            2 * params.robot_radius_m, params.release_distance_m))
+        zone_ids = list(site.zones)
+        conflicts = site.conflict_pairs(2 * params.robot_radius_m, params.release_distance_m)
+        if params.free_cells:  # 자유 구역 칸과 진입 레인도 잠금 단위다(버전 2 F-2)
+            zone_ids += list(site.cell_units())
+            conflicts |= site.cell_conflict_pairs(2 * params.robot_radius_m,
+                                                  params.release_distance_m)
+        self.zones = ZoneLocks(zone_ids, clock, conflicts)
         self.selector = RobotSelector(site, params)
         self._clock = clock
         self._next_goal_id = next_goal_id or self._own_goal_id
@@ -512,8 +517,11 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
             return
         waypoint = self.site.nearest_waypoint(m.x, m.y, radius=self.params.release_distance_m)
         zone = self._zone(waypoint)
-        in_the_way = self.zones.holders_around(zone, m.name)
-        if not self.zones.force_acquire(m.name, zone):
+        units = self._spot_units(m, zone)  # 칸 모드의 자유 구역이면 둘레 칸(F-2)
+        in_the_way = {}
+        for unit in units:
+            in_the_way.update(self.zones.holders_around(unit, m.name))
+        if in_the_way or not all(self.zones.force_acquire(m.name, unit) for unit in units):
             stopped = self._placement_blocked(m, in_the_way)
             if m.fault_reason != PLACEMENT_CONFLICT:
                 m.fault = ERROR
@@ -722,6 +730,8 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
             # 물러나는 동안은 들어온 레인의 시작 지점 구역이 "다음"이다(1-A). 잠근 때 로봇은 아직
             # 그 바닥 밖이라 지난 구역으로 보고 놓으면 안 된다
             needed.add(self._zone(m.path[m.idx - 1]))
+        if self._cells_on:  # 자유 구역 대신 놓으면 안 되는 칸과 진입 레인(F-2)
+            needed = self._unit_needs(m, needed, current)
         return needed | set(m.borrowed)
 
     def _zone_after(self, m: _Mission, zone: str) -> str | None:
@@ -745,6 +755,7 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         필요한 구역은 현재와 다음 구역뿐이다. 한참 뒤 다시 지날 구역(한 바퀴 도는 로봇은
         Z-X를 두 번 지난다)을 그동안 쥐고 있으면 안 된다.
         """
+        self._forget_claims(m)
         keep = self._needed_zones(m)
         for zone in self.zones.held_by(m.name):
             if zone not in keep:
@@ -830,11 +841,13 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         m.dest = dest
         _, new_next = self._upcoming(m)
         self._drop_stale_plans(m)
+        self._drop_stale_claims(m)
         requests = self.zones.requests_of(m.name)
         if old_next and old_next != new_next:
             self.zones.cancel_request(m.name, old_next)
         held = self.zones.held_by(m.name)
-        if any(zone in self.site.free_areas for zone in (*requests, *held)):
+        if any(zone in self.site.free_areas or self.site.unit_area(zone)
+               for zone in (*requests, *held)):
             # 자유 구역과 출구 다음 구역을 함께 청했거나, 자유 구역을 쥐고 출구 다음 구역을
             # 청했다(F-1). 새 길에 필요 없는 요청은 모두 거둔다
             needed = self._needed_zones(m)
@@ -988,9 +1001,20 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
     def _request_next_zone(self, m: _Mission) -> None:
         """현재 구역(과 빌린 구역) 말고 쥔 것이 없을 때만 다음 구역을 요청한다."""
         current, following = self._upcoming(m)
+        if self._cells_on:
+            # 칸 모드(F-2): 자유 구역은 칸 묶음과 출구 다음 구역을 한꺼번에 청한다
+            if current in self.site.free_areas and not self._request_cells(m, current):
+                return
+            if following in self.site.free_areas:
+                held = self._held_view(m)
+                if following in held or self._holds_ahead(m, current, held):
+                    m.wait_zone = None  # 지난 구역을 아직 쥐었으면 다음을 청하지 않는다
+                elif self._request_cells(m, following):
+                    m.wait_zone = None
+                return
         if following is None:
             return
-        held = self.zones.held_by(m.name)
+        held = self._held_view(m)
         if following in self.site.free_areas and following in held:
             # 자유 구역을 쥔 뒤 경로가 바뀌어 출구가 달라졌으면 새 출구 다음 구역을 청한다(F-1).
             # 그것을 쥘 때까지 _free_crossing_ready가 자유 구역으로 목표를 잇지 않는다
@@ -1009,7 +1033,9 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
             if following is None:  # 새 길은 이 구역 안에서 끝난다
                 m.wait_zone = None
                 return
-        if following in self.site.free_areas:
+        if self._cells_on and following in self.site.free_areas:
+            granted = self._request_cells(m, following)  # 우회한 길이 자유 구역으로 간다(F-2)
+        elif following in self.site.free_areas:
             granted = self.zones.request_all(
                 m.name, [z for z in (following, self._zone_after(m, following)) if z])
         else:
@@ -1034,7 +1060,7 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
             return  # 막힌 동안과 취소 결과 전에는 목표를 늘리거나 새로 내지 않는다
         if m.goal is None and (self._clock() < m.retry_at or m.arrival_by is not None):
             return
-        held = self.zones.held_by(m.name)
+        held = self._held_view(m)
         if m.settle_idx is not None and m.goal is None:
             settle = m.settle_idx
             while settle > m.idx and self._zone(m.path[settle]) not in held:

@@ -5,6 +5,7 @@
 있으므로 대기 그래프가 그 대기를 본다. 출구 다음 구역은 자유 구역을 지나는 동안 "다음 구역"과
 같이 쥔다(_needed_zones).
 """
+from dataclasses import replace
 from pathlib import Path
 
 from fleet_core.common.commands import PlanCmd
@@ -54,10 +55,11 @@ def test_request_all_with_zones_already_held():
 
 
 class Drive:
-    def __init__(self, starts):
+    def __init__(self, starts, free_cells=False, **changes):
+        """F-1 시험은 한 번에 한 대(free_cells 끔)로 돈다. F-2 시험은 켠다."""
         self.now = [0.0]
         self.site = load_lane_map(FREE_MAP)
-        self.params = load_params()
+        self.params = replace(load_params(), free_cells=free_cells, **changes)
         self.core = TrafficController(self.site, self.params, list(starts), lambda: self.now[0])
         self.pose = {r: self.site.waypoint_pose(w) for r, w in starts.items()}
         for _ in range(self.params.release_confirm_samples):

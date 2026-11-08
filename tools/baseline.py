@@ -93,6 +93,7 @@ DEFAULT_PLAN = {
     "feature_map": ["feature_basic_orders", "feature_blocked_lane"],
     "two_lane_segments": ["basic_orders", "blocked_lane", "reinstate"],
     "feature_map_free": ["free_area_basic", "free_area_box"],
+    "feature_map_crossing": ["free_area_crossing"],
 }
 MODES = ("path", "point")
 # Scenarios the point mode cannot run: the fake robot drives a point goal in a straight line and

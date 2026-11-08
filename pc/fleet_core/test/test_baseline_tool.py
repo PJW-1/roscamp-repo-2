@@ -450,3 +450,19 @@ def test_the_free_floor_of_the_world_is_the_polygon_itself():
                                  "path")
     assert world._on_free_floor(1.5, 0.7)
     assert not world._on_free_floor(1.5, 0.47), "가장자리에서 0.03 m 밖, 출입구에서 멀다"
+
+
+# ---- free areas, several robots (version 2 F-2) ---------------------------------------------
+
+
+def test_two_robots_cross_the_plaza_at_once_on_the_crossing_map():
+    """free_area_crossing: 출고 뒤 광장 동쪽과 대기 줄에서 WORK로 가는 서쪽이 칸 열이 달라
+    두 대가 동시에 광장 칸을 쥔다. 몸 아래 칸은 늘 그 로봇 것이다(SimWorld 불변식)."""
+    assert "free_area_crossing" in baseline.DEFAULT_PLAN["feature_map_crossing"]
+    for seed in (1, 2):
+        row, world = baseline.run_with_world("feature_map_crossing", "free_area_crossing", seed,
+                                             "path")
+        assert row["finished"], (seed, row["error"])
+        assert world.cells_shared_max >= 2, seed
+        assert world.cell_checks > 0
+        assert "FREE_CELLS" in world.event_codes()
