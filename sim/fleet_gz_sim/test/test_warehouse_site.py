@@ -194,9 +194,10 @@ def test_every_box_blocks_only_its_own_lane():
     26502c6: C3->C4 at fraction 0.9 would stand in the P-3->C4 exit)."""
     schedule = obstacles.load_schedule(PKG / "obstacles" / "warehouse.yaml", LANES)
     for one in schedule.obstacles:
-        own = frozenset(one.lane)
+        # By end points, not by name: waypoint names such as P-1 hold the "-" of the lane name.
+        own = {tuple(LANES.waypoint_pose(w)[:2]) for w in one.lane}
         for a, b, name in arena.lane_segments(LANES):
-            if frozenset(name.split("-", 1)) == own:
+            if {tuple(a), tuple(b)} == own:
                 continue
             gap = arena._point_segment((one.x, one.y), a, b)
             assert gap >= CLEAR_M - EPS, f"{one.label} is {gap:.3f} m from lane {name}"
