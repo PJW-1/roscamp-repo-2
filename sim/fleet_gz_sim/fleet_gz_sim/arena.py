@@ -328,6 +328,11 @@ def _lane_xml(a, b, name: str) -> str:
             "</material></visual>\n")
 
 
+# Gazebo는 물리 한 스텝마다 /clock을 내고, use_sim_time 노드는 그때마다 깬다. 1 ms(1 kHz)에서는
+# 핑키 3대 실행의 Python 노드가 코어를 50~90 %씩 써서 실시간의 0.3~0.5로 돌았다(2026-11-08).
+PHYSICS_STEP_S = 0.004
+
+
 def world_sdf(lane_map, render_engine: str = "ogre2", site: Site = LANE_ARENA) -> str:
     body = "".join(_arm_xml(b, site) if b.kind == "arm" else _box_xml(b)
                    for b in obstacles(site))
@@ -338,8 +343,8 @@ def world_sdf(lane_map, render_engine: str = "ogre2", site: Site = LANE_ARENA) -
      {CLEARANCE_M} m 넘게 떨어져 있다. -->
 <sdf version="1.9">
   <world name="{WORLD}">
-    <physics name="1ms" type="ignored">
-      <max_step_size>0.001</max_step_size>
+    <physics name="4ms" type="ignored">
+      <max_step_size>{PHYSICS_STEP_S}</max_step_size>
       <real_time_factor>1.0</real_time_factor>
     </physics>
     <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>

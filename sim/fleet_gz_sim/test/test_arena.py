@@ -212,3 +212,18 @@ def test_a_site_file_with_a_duplicate_key_is_refused(tmp_path):
     text = TOY.replace("kind: rack,", "kind: rack, kind: pillar,")
     with pytest.raises(arena.SiteError, match="duplicate"):
         arena.load_site(site_file(tmp_path, text))
+
+
+def test_every_world_steps_physics_at_4_ms():
+    """Gazebo publishes /clock once per physics step, and every node on use_sim_time wakes up
+    for it. At 1 ms the Python nodes of the three-robot warehouse run took 50-90 % of a core
+    each and the sim ran at 0.3-0.5 of real time (2026-11-08), so the worlds step at 4 ms
+    (/clock at 250 Hz in real time)."""
+    texts = {"generator": arena.world_sdf(LANES)}
+    texts.update({p.name: p.read_text(encoding="utf-8")
+                  for p in sorted((PKG / "worlds").glob("*.sdf"))})
+    assert len(texts) >= 3
+    for name, text in texts.items():
+        physics = ET.fromstring(text).find("world/physics")
+        assert float(physics.findtext("max_step_size")) == pytest.approx(0.004), name
+        assert float(physics.findtext("real_time_factor")) == pytest.approx(1.0), name
