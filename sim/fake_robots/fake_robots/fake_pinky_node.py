@@ -41,7 +41,7 @@ from fake_robots.motion import (
     noisy_pose,
     path_gap,
 )
-from fake_robots.planner import plan_path
+from fake_robots.planner import area_polygon, plan_path
 from fake_robots.recovery import ObstacleRecovery, RecoveryParams
 
 NAV_ABORT_DELAY_S = 0.2  # 해제 거리(0.2 m)를 지나기 전, 관제가 선을 늘리기 전에 중단한다
@@ -168,15 +168,15 @@ class FakePinkyNode(Node):
         start = here
         if request.use_start:
             start = (request.start.pose.position.x, request.start.pose.position.y)
-        polygon = next((list(area.polygon) for name, area in self._site.free_areas.items()
-                        if not self._site.free_path_outside(name, [start])
-                        and not self._site.free_path_outside(name, [goal])), None)
-        points = plan_path(start, goal, self._boxes, polygon=polygon)
+        polygon = area_polygon({n: a.polygon for n, a in self._site.free_areas.items()},
+                               start, goal, self._site.half_width)
+        points = None if polygon is None else plan_path(start, goal, self._boxes, polygon=polygon)
         result = ComputePathToPose.Result()
         result.path.header.frame_id = "map"
         if points is None:
             result.error_code = ComputePathToPose.Result.NO_VALID_PATH
-            result.error_msg = "no way round the boxes"
+            result.error_msg = ("start or goal is off every free floor" if polygon is None
+                                else "no way round the boxes")
             goal_handle.abort()
             return result
         for x, y in points:

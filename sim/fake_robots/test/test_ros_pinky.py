@@ -869,3 +869,5 @@ def test_the_path_action_answers_a_free_crossing(harness, tmp_path):
     assert points[0] == pytest.approx((1.35, 0.85)) and points[-1] == pytest.approx((1.35, 0.5))
     assert min(math.dist(q, (1.35, 0.675)) for q in points) >= 0.03 + 0.12 - 1e-6
     assert done.result.path.header.frame_id == "map"
+    off = _plan(p, (0.2, 0.2), (1.35, 0.5))  # 시작이 어느 자유 구역 바닥에도 없다(3b Codex 2)
+    assert off.status == GoalStatus.STATUS_ABORTED and list(off.result.path.poses) == []

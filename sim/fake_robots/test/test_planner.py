@@ -1,7 +1,7 @@
 """가짜 경로 계산(버전 2 F-1, fake_robots/planner.py)."""
 import math
 
-from fake_robots.planner import plan_path
+from fake_robots.planner import area_polygon, plan_path
 
 FLOOR = [(1.0, 0.5), (2.0, 0.5), (2.0, 0.85), (1.0, 0.85)]  # feature_map_free 광장
 
@@ -56,3 +56,23 @@ def test_a_box_next_to_the_end_of_the_line_is_not_passed_straight():
 def test_a_zero_length_request_inside_a_box_gets_no_path():
     assert plan_path((1.5, 0.6), (1.5, 0.6), [(1.52, 0.6, 0.06)]) is None
     assert plan_path((1.5, 0.6), (1.5, 0.6)) == [(1.5, 0.6), (1.5, 0.6)]
+
+
+# ---- 어느 자유 구역 바닥인가(F-1 3b Codex 2, 3) --------------------------------------------
+
+WEST = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
+EAST = [(1.04, 0.0), (2.0, 0.0), (2.0, 1.0), (1.04, 1.0)]
+
+
+def test_points_outside_every_area_have_no_floor():
+    assert area_polygon({"W": WEST}, (3.0, 0.5), (3.5, 0.5), 0.05) is None
+    assert area_polygon({"W": WEST}, (0.5, 0.5), (3.5, 0.5), 0.05) is None
+
+
+def test_a_gate_just_off_the_edge_still_counts():
+    assert area_polygon({"W": WEST}, (0.5, 1.04), (0.5, 0.2), 0.05) == WEST
+
+
+def test_the_area_that_really_holds_both_points_wins_over_a_near_one():
+    """앞에 적힌 서쪽 바닥의 가장자리 허용 안에 있어도, 두 점이 실제로 든 동쪽 바닥을 고른다."""
+    assert area_polygon({"W": WEST, "E": EAST}, (1.05, 0.5), (1.06, 0.9), 0.05) == EAST

@@ -28,6 +28,27 @@ def _gap(px, py, a, b) -> tuple[float, float]:
     return math.hypot(px - (a[0] + t * vx), py - (a[1] + t * vy)), t
 
 
+def _polygon_gap(x, y, polygon) -> float:
+    if _inside(x, y, polygon):
+        return 0.0
+    return min(_gap(x, y, a, b)[0] for a, b in zip(polygon, polygon[1:] + polygon[:1], strict=True))
+
+
+def area_polygon(polygons, start, goal, allowance_m: float):
+    """시작과 목표가 함께 든 자유 구역 바닥(다각형). 없으면 None.
+
+    출입구는 가장자리에서 allowance_m(레인 half_width)까지 떨어질 수 있어 그만큼 봐준다. 여러
+    바닥이 맞으면 두 점이 덜 벗어난 바닥을 고른다(실제로 든 바닥이 가까운 이웃보다 앞선다).
+    """
+    best, best_gap = None, math.inf
+    for polygon in polygons.values():
+        polygon = [tuple(p) for p in polygon]
+        gap = max(_polygon_gap(*start, polygon), _polygon_gap(*goal, polygon))
+        if gap <= allowance_m + 1e-9 and gap < best_gap:
+            best, best_gap = polygon, gap
+    return best
+
+
 def _dense(points, step_m: float) -> list[tuple[float, float]]:
     out = [points[0]]
     for a, b in zip(points, points[1:], strict=False):
