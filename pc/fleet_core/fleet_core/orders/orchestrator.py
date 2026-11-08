@@ -321,6 +321,20 @@ class OrderOrchestrator:
             "attempts": r.attempts,
         }
 
+    def station_job(self, robot) -> tuple[str, int, float | None] | None:
+        """(FILL 또는 SWAP, 안 놓은 수량, 팔 goal을 보낸 시각 또는 None). 팔 일 중이 아니면 None.
+
+        수량은 FILL만 센다(SWAP은 1). ETA가 스테이션 작업 남은 시간을 셈하는 입력이다(버전 2 2번).
+        """
+        r = self._robots.get(robot)
+        if r is None or r.stage not in (FILLING, SWAPPING):
+            return None
+        sent = r.arm.sent_at if r.arm else None
+        if r.stage == SWAPPING:
+            return SWAP, 1, sent
+        left = _subtract(r.order.items, r.order.placed, r.order.missing) if r.order else {}
+        return FILL, sum(left.values()), sent
+
     # ---- helpers ------------------------------------------------------------------------
 
     def _own_goal_id(self) -> int:
