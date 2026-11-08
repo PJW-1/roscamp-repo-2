@@ -270,3 +270,28 @@ def test_the_simworld_corner_allowance_covers_the_longest_tangent():
             radius = min(r, d / (1 / m.cos(h) - 1))
             worst = max(worst, radius * m.tan(h))
         assert worst <= m.sqrt(d * d + 2 * r * d) + 1e-9
+
+
+def test_an_arc_is_not_used_when_a_floor_pokes_in_between_two_samples():
+    """horizon 2 재검수 2: 표본(5 mm) 사이로만 들어오는 바닥 모서리도 막는다."""
+    from fleet_core.traffic.lane_map import LaneMap
+    from fleet_core.traffic.lane_path import _along
+    line = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)]
+    arc = [p for p in round_corners(line, [False, True, False], 0.12, 0.05) if p not in line]
+    samples = _along([(0.88, 0.0), *arc])
+    k = len(samples) // 2
+    mx, my = ((samples[k][0] + samples[k + 1][0]) / 2, (samples[k][1] + samples[k + 1][1]) / 2)
+    cx, cy = mx + 0.001, my - 0.001  # 바닥 {x <= cx, y >= cy}: 가운데만 들고 두 표본은 밖
+    assert not (samples[k][0] <= cx and samples[k][1] >= cy)
+    assert not (samples[k + 1][0] <= cx and samples[k + 1][1] >= cy)
+    site = LaneMap({
+        "half_width_m": 0.05, "lane_entry_m": 0.25, "origin_m": [0.0, 0.0],
+        "waypoints": [{"id": "A", "x": 0.0, "y": 0.0}, {"id": "B", "x": 1.0, "y": 0.0},
+                      {"id": "C", "x": 1.0, "y": 1.0}, {"id": "G1", "x": 0.6, "y": 0.2},
+                      {"id": "G2", "x": 0.8, "y": 0.4}],
+        "lanes": [{"from": "A", "to": "B"}, {"from": "B", "to": "C"}],
+        "free_areas": {"PLAZA": {"polygon": [[0.6, cy], [cx, cy], [cx, 0.4], [0.6, 0.4]],
+                                 "gates": ["G1", "G2"]}},
+    })
+    assert site.distance_to_zone(mx, my, "PLAZA") == 0.0, "시험 전제"
+    assert not arc_check(site)(line)(1, arc)

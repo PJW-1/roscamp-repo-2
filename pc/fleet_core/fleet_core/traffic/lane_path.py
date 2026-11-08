@@ -154,22 +154,24 @@ class TrafficPath:
         """원호를 써도 되나(안전 쪽). 원호를 STEP_M 간격으로 본 모든 점이
         - 꺾인 지점이나 앞뒤 점의 구역에 속하고(nearest_waypoint, 다른 구역 로봇처럼 보이지 않게),
         - 꺾인 그대로의 선(접점 - 꺾인 지점 - 접점)이 닿는 바닥 말고는 어느 구역 바닥(자유 구역
-          다각형 포함)에도 들지 않는다.
+          다각형 포함)에서도 STEP_M/2 넘게 떨어져 있다(그래서 표본 사이 선분도 바닥 밖이다).
         """
         site = self.site
 
         def zone_at(x, y):
             return self._zone(site.nearest_waypoint(x, y))
 
-        def floors(x, y):
-            return {zone for zone in site.zones if site.distance_to_zone(x, y, zone) <= 0.0}
+        def floors(x, y, margin=0.0):
+            return {zone for zone in site.zones if site.distance_to_zone(x, y, zone) <= margin}
 
         def accept(i, arc):
             near = {zone_at(*points[k]) for k in (i - 1, i, i + 1)}
             allowed = set()
             for x, y in _along([arc[0], points[i], arc[-1]]):
                 allowed |= floors(x, y)
-            return all(zone_at(x, y) in near and floors(x, y) <= allowed for x, y in _along(arc))
+            # 바닥까지 거리는 1-립시츠라 표본에서 STEP_M/2 넘게 떨어지면 표본 사이도 밖이다
+            return all(zone_at(x, y) in near and floors(x, y, STEP_M / 2) <= allowed
+                       for x, y in _along(arc))
         return accept
 
     def _first_ahead(self, m: _Mission, target_idx: int) -> int:
