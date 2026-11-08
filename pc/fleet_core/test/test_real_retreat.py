@@ -160,3 +160,56 @@ def test_the_retreat_cancels_a_running_move_first():
     out = retreat(d, m)
     kinds = [type(c).__name__ for c in out if isinstance(c, (CancelCmd, RetreatCmd))]
     assert kinds == ["CancelCmd", "RetreatCmd"]
+
+
+# ---- 1-A Codex 검수 ---------------------------------------------------------------------
+
+
+def test_a_retreat_with_no_result_by_its_deadline_is_canceled_and_failed():
+    """결과가 끝내 오지 않으면 goal을 취소하고 실패로 본다(구역 확인은 그 뒤에)."""
+    d, m = at_the_gate()
+    (cmd,) = [c for c in retreat(d, m) if isinstance(c, RetreatCmd)]
+    d.core._out.clear()
+    d.now[0] = d.core._retreating[2] + 0.1
+    report(d, "r1", *d.site.waypoint_pose("G3"), SOUTH)
+    d.core._finish_retreat(["r1", "r2"])
+    assert CancelCmd("r1", cmd.goal_id) in d.core._out
+    assert "RETREAT_FAILED" in codes(d.core._out)
+    assert m.goal is None and m.idx == 1
+    assert "PLAZA" in d.core.zones.held_by("r1"), "결과 없이는 아무것도 놓지 않는다"
+
+
+def test_a_failed_retreat_off_the_floor_but_not_past_the_exit_still_ends():
+    """실패한 물러나기 뒤 바닥 밖(뒤쪽)이지만 출구 레인으로는 안 벗어난 로봇: 끝없이 기다리지 않는다."""
+    d, m = at_the_gate()
+    (cmd,) = [c for c in retreat(d, m) if isinstance(c, RetreatCmd)]
+    d.core.on_retreat_result("r1", cmd.goal_id, False, "OBSTACLE_BEHIND")
+    x, y = d.site.waypoint_pose("F1")  # 실패라고 했지만 다 물러났다(경로 인덱스는 그대로)
+    report(d, "r1", x, y, SOUTH)
+    assert d.core._off_the_floor(m, "PLAZA") and not d.core._clear_of(m, "PLAZA")
+    d.core._out.clear()
+    for _ in range(10):
+        if d.core._retreating is None:
+            break
+        d.now[0] = d.core._retreating[2] + 0.1
+        report(d, "r1", x, y, SOUTH, n=1)
+        d.core._finish_retreat(["r1", "r2"])
+    assert d.core._retreating is None
+    assert "DEADLOCK_UNRESOLVED" in codes(d.core._out)
+
+
+def test_trying_a_robot_leaves_its_own_earlier_wait_for_the_spot_alone():
+    d, m = at_the_gate()
+    assert d.core.zones.request("r2", "F1")  # r2가 F1을 쥐고
+    d.core.zones.request("r1", "F1")  # r1은 그 전부터 F1을 기다렸다
+    retreat(d, m)
+    assert "r1" in d.core.zones.queue("F1"), "시험해 본 것만으로 원래 줄을 잃지 않는다"
+
+
+def test_no_retreat_that_would_leave_the_lane_floor():
+    """30° 안이라도 곧게 물러난 끝이 들어온 레인 바닥(half_width) 밖이면 하지 않는다."""
+    d, m = at_the_gate()
+    m.yaw = SOUTH + math.radians(20)
+    out = retreat(d, m)
+    assert not [c for c in out if isinstance(c, RetreatCmd)]
+    assert "F1" not in d.core.zones.held_by("r1")

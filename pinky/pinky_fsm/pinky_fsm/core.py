@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 
 from pinky_fsm.backup import (
     FAILED,
+    OBSTACLE_BEHIND,
     BackUp,
     CancelBackUp,
     backup_distance,
@@ -41,6 +42,7 @@ RECOVERING = "RECOVERING"  # 2026-11-09 제안: 자가 복구 중
 NAV_ABORTED = "NAV_ABORTED"
 CANCELED = "CANCELED"
 TIMEOUT = "TIMEOUT"
+RETREAT_REASONS = (OBSTACLE_BEHIND, TIMEOUT, CANCELED, FAILED)  # 계약 0.7 Retreat.action
 HEARTBEAT_LOST = "HEARTBEAT_LOST"
 PATH_NOT_CONNECTED = "PATH_NOT_CONNECTED"
 DOCK_UNAVAILABLE = "DOCK_UNAVAILABLE"  # Dock 결과에는 reason이 없다. 로그에만 남는다
@@ -80,6 +82,7 @@ class FsmParams:
     backup_lateral_limit_m: float = 0.03
     backup_speed_mps: float = 0.08
     backup_time_allowance_s: float = 5.0
+    retreat_stop_wait_s: float = 3.0  # 물러나기 전 달리던 로봇이 서기를 기다리는 한계(1-A, 추정)
     backup_result_grace_s: float = 2.0  # time allowance 뒤에도 결과가 없으면 멈추고 이어 간다
     recovery_pass_m: float = 0.05  # 막힌 곳을 이만큼 지나면 복구가 끝난다
     recovery_timeout_s: float = 10.0  # 다시 보낸 뒤 이만큼 못 지나면 다음 시도로 친다
@@ -142,11 +145,16 @@ class _Dock:
 
 @dataclass
 class _Retreat:
-    """관제가 시킨 물러나기(버전 2 1-A). BackUp 하나를 내고 그 결과로 끝난다."""
+    """관제가 시킨 물러나기(버전 2 1-A). BackUp 하나를 내고 그 결과로 끝난다.
+
+    달리던 이동이 있었으면 로봇이 설 때까지(stopped_speed) BackUp을 미룬다(seq 0).
+    """
     goal_id: Hashable
     seq: int
     since: float
     allowance_s: float
+    distance_m: float = 0.0
+    speed_mps: float = 0.0
 
 
 class PinkyFsm:
@@ -248,15 +256,25 @@ class PinkyFsm:
                 speed_mps: float) -> list:
         """뒤로 곧게 distance_m. 달리던 이동과 자가 복구 후진을 먼저 멈춘다."""
         self._alive = max(self._alive, now)
+        was_driving = self._nav_running
         cmds = self._end_active(CANCELED, stop=True)
         if not (distance_m > 0.0 and speed_mps > 0.0):
             return cmds + [Finish(goal_id, False, FAILED)]
-        self._bseq += 1
-        allowance = distance_m / speed_mps * 2.0 + 2.0  # 가속·감속과 멈칫거림까지 넉넉히
-        self._active = _Retreat(goal_id, self._bseq, now, allowance)
-        self._backup_running = True
         self._stopped_since = None
-        return cmds + [BackUp(self._bseq, float(distance_m), float(speed_mps), allowance)]
+        if was_driving:
+            # FollowPath 취소가 바퀴를 세울 때까지 기다린다(둘 다 cmd_vel, 1-A Codex 1)
+            self._active = _Retreat(goal_id, 0, now, self.p.retreat_stop_wait_s,
+                                    float(distance_m), float(speed_mps))
+            return cmds
+        self._active = _Retreat(goal_id, 0, now, 0.0, float(distance_m), float(speed_mps))
+        return cmds + self._start_retreat(self._active, now)
+
+    def _start_retreat(self, g: _Retreat, now: float) -> list:
+        self._bseq += 1
+        allowance = g.distance_m / g.speed_mps * 2.0 + 2.0  # 가속·감속과 멈칫거림까지 넉넉히
+        g.seq, g.since, g.allowance_s = self._bseq, now, allowance
+        self._backup_running = True
+        return [BackUp(g.seq, g.distance_m, g.speed_mps, allowance)]
 
     def cancel(self, goal_id: Hashable, now: float) -> list:
         if not self.is_running(goal_id):
@@ -330,7 +348,14 @@ class PinkyFsm:
             g = None
         if isinstance(g, _Move) and pose is not None:
             g.s = self._track(g, pose)
-        if (isinstance(g, _Retreat)
+        if isinstance(g, _Retreat) and g.seq == 0:
+            lin, ang = speed
+            if abs(lin) < self.p.stopped_speed_mps and abs(ang) < self.p.stopped_turn_rps:
+                cmds += self._start_retreat(g, now)
+            elif now - g.since >= g.allowance_s:
+                cmds += self._end_active(TIMEOUT, stop=True)  # 서지 않는다. 물러나지 않는다
+                g = None
+        elif (isinstance(g, _Retreat)
                 and now - g.since >= g.allowance_s + self.p.backup_result_grace_s):
             cmds += self._end_active(TIMEOUT, stop=True)  # BackUp 결과가 오지 않는다
             g = None
@@ -504,6 +529,8 @@ class PinkyFsm:
                 self._blocked_points = self._ahead(g, self._pose)
             self._active = None
             self._rest = IDLE
+            if isinstance(g, _Retreat) and reason not in RETREAT_REASONS:
+                reason = FAILED  # 계약 0.7: Retreat reason은 넷뿐이다(heartbeat, 위치 잃음 등)
             cmds.append(Finish(g.goal_id, False, reason))
         if stop and self._nav_running:
             self._nav_running = False

@@ -64,7 +64,9 @@ _FLOAT_PARAMS = (
     # 자가 복구
     "backup_max_m", "release_distance_m", "backup_margin_m", "backup_min_m",
     "backup_lateral_limit_m", "backup_speed_mps", "backup_time_allowance_s",
-    "backup_result_grace_s", "recovery_pass_m", "recovery_timeout_s", "recovery_reset_m")
+    "backup_result_grace_s", "recovery_pass_m", "recovery_timeout_s", "recovery_reset_m",
+    # 관제가 시키는 물러나기(버전 2 1-A)
+    "retreat_stop_wait_s")
 _INT_PARAMS = ("recovery_attempts",)
 
 

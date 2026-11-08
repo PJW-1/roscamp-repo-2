@@ -58,3 +58,17 @@ def test_the_report_carries_the_heading_as_yaw():
     w.virtual["r1"].heading = 1.0
     w.step()
     assert w.core.traffic._missions["r1"].yaw == 1.0
+
+
+def test_a_box_behind_ends_a_retreat_with_obstacle_behind():
+    """1-A Codex 6: 시나리오 상자도 뒤 물체다."""
+    w = world_with({"r1": {"start": "P-1", "speed_mps": 0.2, "pose_noise_m": 0.0}})
+    seen = results(w)
+    r = w.virtual["r1"]
+    r.heading = math.pi / 2
+    start = (r.x, r.y)
+    w.boxes = ((r.x, r.y - 0.25, 0.06),)
+    w._apply(RetreatCmd("r1", 904, 0.3, 0.1))
+    w.run(4.0)
+    assert seen and seen[0][:3] == ("r1", 904, False) and seen[0][3] == "OBSTACLE_BEHIND"
+    assert (r.x, r.y) == start

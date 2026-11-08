@@ -848,12 +848,52 @@ def test_a_retreat_stops_the_move_first_then_backs_up_straight():
     fsm = ready()
     move(fsm, "g1", 0.0)
     cmds = fsm.retreat("r1", 1.0, 0.3, 0.1)
-    assert kinds(cmds)[:2] == ["Finish", "CancelNav"], "이동을 먼저 멈춘다(둘 다 cmd_vel)"
+    assert kinds(cmds) == ["Finish", "CancelNav"], "이동을 먼저 멈춘다(둘 다 cmd_vel)"
     assert cmds[0] == Finish("g1", False, CANCELED)
-    (b,) = backups(cmds)
+    assert fsm.state() == MOVING and fsm.is_running("r1")
+    fsm.heartbeat(1.2)
+    assert not backups(fsm.tick(1.2, (*P3, NORTH), DRIVING, no_obstacle)), "아직 굴러간다"
+    fsm.heartbeat(1.4)
+    (b,) = backups(fsm.tick(1.4, (*P3, NORTH), STILL, no_obstacle))  # 1-A Codex 1
     assert (b.distance_m, b.speed_mps) == (0.3, 0.1)
     assert b.time_allowance_s >= 0.3 / 0.1
     assert fsm.state() == MOVING and fsm.is_running("r1")
+
+
+def test_a_retreat_from_standing_still_backs_up_at_once():
+    fsm = ready()
+    (b,) = backups(fsm.retreat("r1", 1.0, 0.3, 0.1))
+    assert (b.distance_m, b.speed_mps) == (0.3, 0.1)
+
+
+def test_a_robot_that_never_stops_does_not_back_up():
+    fsm = ready()
+    move(fsm, "g1", 0.0)
+    fsm.retreat("r1", 1.0, 0.3, 0.1)
+    cmds = []
+    for k in range(1, 40):
+        t = 1.0 + 0.1 * k
+        fsm.heartbeat(t)
+        cmds += fsm.tick(t, (*P3, NORTH), DRIVING, no_obstacle)
+    assert not backups(cmds)
+    assert Finish("r1", False, TIMEOUT) in cmds
+
+
+def test_a_lost_heartbeat_ends_a_retreat_failed():
+    """1-A Codex 7: Retreat 결과 reason은 계약의 넷(OBSTACLE_BEHIND 등)뿐이다."""
+    fsm = ready()
+    fsm.retreat("r1", 1.0, 0.3, 0.1)
+    cmds = fsm.tick(1.0 + FsmParams().heartbeat_timeout_s + 0.1, (*P3, NORTH), STILL,
+                    no_obstacle)
+    assert Finish("r1", False, "FAILED") in cmds and CancelBackUp() in cmds
+
+
+def test_a_lost_pose_ends_a_retreat_failed():
+    fsm = ready()
+    fsm.retreat("r1", 1.0, 0.3, 0.1)
+    fsm.heartbeat(1.1)
+    cmds = fsm.tick(1.1, None, STILL, no_obstacle)
+    assert Finish("r1", False, "FAILED") in cmds
 
 
 @pytest.mark.parametrize(("outcome", "code", "success", "reason"), [

@@ -16,6 +16,7 @@ from fleet_core.traffic.deadlock import (
     priority,
     wait_graph,
 )
+from fleet_core.traffic.lane_map import _point_segment
 from fleet_core.traffic.mission import (
     AT_STATION,
     COMM_LOST,
@@ -235,7 +236,7 @@ class TrafficRecovery:
         if m.goal:
             self._cancel_goal(m)
         self._retreating = (robot, given_up, self._clock() + self.params.recover_check_s)
-        self._retreat_rechecks = 0
+        self._retreat_rechecks = None  # 구역 포기: 바닥 밖인 동안 기다린다(전과 같다)
         self._event("ERROR", "DEADLOCK_RETREAT", f"{robot} gives up {given_up}", robot)
 
     def _back_off(self, m: _Mission, cycle: list[str]) -> bool:
@@ -244,7 +245,8 @@ class TrafficRecovery:
         조건: 경로에 지난 지점이 있고 그 구역이 지금 구역과 다르다. 그 구역을 줄 서지 않고
         바로 잠글 수 있다. 로봇이 그 레인 방향을 retreat_heading_tolerance_deg 안으로 본다
         (Retreat는 보는 방향 그대로 곧게 간다). 물러난 자리가 지금 쥔 구역 바닥 모두에서 해제
-        거리만큼 떨어진다. 하나라도 아니면 False이고 아무것도 바꾸지 않는다.
+        거리만큼 떨어지고, 들어온 레인 바닥(half_width) 위에 있다. 하나라도 아니면 False이고
+        아무것도 바꾸지 않는다(그 구역을 전부터 기다렸으면 그 줄도 그대로).
         """
         if not self.params.real_retreat or m.idx == 0:
             return False
@@ -265,8 +267,12 @@ class TrafficRecovery:
         if distance <= 0.0 or any(self.site.distance_to_zone(*end, zone) < clear
                                   for zone in held):
             return False
+        if _point_segment(*end, bx, by, hx, hy) > self.site.half_width:
+            return False  # 곧게 물러나면 레인 바닥을 벗어난다(다른 구역 바닥일 수 있다)
+        waiting = spot in self.zones.requests_of(m.name)
         if not self.zones.request(m.name, spot):
-            self.zones.cancel_request(m.name, spot)  # 바로 못 잠그면 줄에도 서지 않는다
+            if not waiting:
+                self.zones.cancel_request(m.name, spot)  # 바로 못 잠그면 줄에도 서지 않는다
             return False
         if m.goal:
             self._cancel_goal(m)
@@ -275,7 +281,7 @@ class TrafficRecovery:
         self._out.append(RetreatCmd(m.name, goal_id, distance, self.params.retreat_speed_mps))
         allowance = distance / self.params.retreat_speed_mps * 2.0 + 2.0  # 로봇과 같은 셈
         self._retreating = (m.name, held, self._clock() + allowance + self.params.recover_check_s)
-        self._retreat_rechecks = 0
+        self._retreat_rechecks = RETREAT_RECHECKS
         self._event("ERROR", "DEADLOCK_RETREAT",
                     f"{m.name} of {cycle} backs off {distance:.2f} m to {behind} and gives up "
                     f"{held}", m.name)
@@ -301,6 +307,7 @@ class TrafficRecovery:
             self._retreat_rechecks = RETREAT_RECHECKS
         else:
             m.last_result = reason
+            self._retreat_rechecks = 0
             self._event("WARN", "RETREAT_FAILED", f"retreat ended with {reason or 'no reason'}",
                         m.name)
         if self._retreating and self._retreating[0] == m.name:
@@ -311,18 +318,25 @@ class TrafficRecovery:
         """멈춘 로봇이 아직 밖에 있는 구역만 놓는다."""
         robot, zones, _ = self._retreating
         m = self._missions[robot]
+        if m.goal is not None and m.goal.kind == RETREAT:
+            # 기한까지 물러나기 결과가 없다. 멈추게 하고 실패로 본다. 구역은 다음 확인에서 본다
+            self._cancel_goal(m)
+            self._retreat_ended(m, False, "NO_RESULT")
+            return
         for zone in zones:
             self._release_if_cleared(m, zone)
         nothing_released = set(zones) <= set(self.zones.held_by(robot))
-        if nothing_released and any(self._off_the_floor(m, zone) for zone in zones):
-            # 밖에 있지만 보고가 아직 모자라다. 다음 보고로 확인될 수 있다.
-            self._retreating = (robot, zones, self._clock() + self.params.recover_check_s)
-            return
-        if nothing_released and self._retreat_rechecks > 0:
-            # 물러나기는 성공했다. 확인 때의 보고 하나가 잡음으로 바닥 안일 수 있다(1-A)
-            self._retreat_rechecks -= 1
-            self._retreating = (robot, zones, self._clock() + self.params.recover_check_s)
-            return
+        if nothing_released:
+            if self._retreat_rechecks is None:
+                # 구역 포기: 밖에 있지만 보고가 아직 모자라다. 다음 보고로 확인될 수 있다.
+                wait = any(self._off_the_floor(m, zone) for zone in zones)
+            else:
+                # 물러나기(1-A): 성공했으면 몇 번 더 본다(잡음 보고 하나 등). 끝은 있다
+                wait = self._retreat_rechecks > 0
+                self._retreat_rechecks = max(0, self._retreat_rechecks - 1)
+            if wait:
+                self._retreating = (robot, zones, self._clock() + self.params.recover_check_s)
+                return
         self._retreating = None
         if nothing_released:
             self._event("ERROR", "DEADLOCK_UNRESOLVED",

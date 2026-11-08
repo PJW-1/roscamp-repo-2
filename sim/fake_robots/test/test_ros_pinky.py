@@ -924,3 +924,27 @@ def test_a_robot_behind_ends_a_retreat_with_obstacle_behind(harness, tmp_path):
     assert (res.success, res.reason) == (False, Retreat.Result.REASON_OBSTACLE_BEHIND)
     assert math.dist((truth[-1][1], truth[-1][2]), (x, y)) < 0.05, "it stopped before the robot"
 
+
+def test_a_box_behind_ends_a_retreat_with_obstacle_behind(harness, tmp_path):
+    """1-A Codex 6: 시나리오 상자도 뒤 물체다."""
+    from fleet_interfaces.action import Retreat
+    x, y = SITE.waypoint_pose("P-6")
+    (x1, y1) = SITE.waypoint_pose("QO")
+    n = math.dist((x, y), (x1, y1))
+    bx, by = x - 0.2 * (x1 - x) / n, y - 0.2 * (y1 - y) / n
+    p = start(harness, tmp_path, robots=LONG, boxes=[{"x": bx, "y": by, "size_m": 0.06}])
+    truth = watch_truth(p)
+    assert wait_until(lambda: p.states and truth, 5.0)
+    p.goal("QO")  # 레인 방향을 보게 한다
+    assert wait_until(lambda: max(along(truth), default=0.0) > 0.05, 10.0)
+    res = result_of(_retreat(p, 0.3)).result
+    assert (res.success, res.reason) == (False, Retreat.Result.REASON_OBSTACLE_BEHIND)
+
+
+def test_a_lost_heartbeat_ends_a_retreat_with_a_contract_reason(harness, tmp_path):
+    """1-A Codex 7: Retreat 결과 reason은 계약의 값만 쓴다(heartbeat가 끊기면 FAILED)."""
+    from fleet_interfaces.action import Retreat
+    p = start(harness, tmp_path, heartbeat_timeout_s=0.5, robots=LONG)
+    assert wait_until(lambda: p.states, 5.0)
+    res = result_of(_retreat(p, 0.3, speed_mps=0.05)).result
+    assert (res.success, res.reason) == (False, Retreat.Result.REASON_FAILED)

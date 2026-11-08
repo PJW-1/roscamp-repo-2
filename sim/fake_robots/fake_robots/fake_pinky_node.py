@@ -51,6 +51,8 @@ NAV_ABORT_DELAY_S = 0.2  # 해제 거리(0.2 m)를 지나기 전, 관제가 선�
 OFF_COURSE_M = 1.0  # 운영자가 치운 로봇이 가는 곳(지도 모서리 밖)
 FEEDBACK_PERIOD_S = 0.2
 CONTROL_RATE_HZ = 20.0
+RETREAT_REASONS = (Retreat.Result.REASON_OBSTACLE_BEHIND, Retreat.Result.REASON_TIMEOUT,
+                   Retreat.Result.REASON_CANCELED, Retreat.Result.REASON_FAILED)
 
 
 class _Goal:
@@ -227,6 +229,8 @@ class FakePinkyNode(Node):
         if (goal.abort_at is not None and not goal.done.is_set()
                 and reason != MoveTo.Result.REASON_NAV_ABORTED):
             self._faults.give_back_nav_abort(goal.abort_from)  # 대체·취소되면 다음 목표로
+        if goal.kind == "retreat" and not success and reason not in RETREAT_REASONS:
+            reason = Retreat.Result.REASON_FAILED  # 계약 0.7: Retreat reason은 이 넷뿐이다
         goal.finish(success, reason)
         if self._active is goal:
             self._rest = (RobotState.STATE_DOCKED if goal.kind == "dock" and success
@@ -283,6 +287,7 @@ class FakePinkyNode(Node):
         radius = self._recovery.p.robot_radius_m
         wall = self._faults.behind(t)
         others = [(x, y, radius) for x, y in list(self._others.values())]
+        others += [(bx, by, size * math.sqrt(2) / 2) for bx, by, size in self._boxes]
         if ((wall is not None and wall <= goal.left + radius)
                 or self._recovery.something_behind(self._motion, goal.left, others)):
             self._end(goal, False, Retreat.Result.REASON_OBSTACLE_BEHIND)

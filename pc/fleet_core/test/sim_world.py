@@ -362,17 +362,18 @@ class SimWorld:
             r.y += dy / dist * min(step, dist)
 
     def _drive_retreat(self, r):
-        """보는 방향 그대로 뒤로 곧게(heading은 그대로). 남은 길에서 몸이 다른 로봇에 닿으면
+        """보는 방향 그대로 뒤로 곧게(heading 그대로). 남은 길에서 몸이 다른 로봇·상자에 닿으면
         그 자리에 서서 OBSTACLE_BEHIND(Nav2 BackUp, FakePinky와 같은 검사)."""
         if r.stuck:
             return  # 끝나지 않는다. 관제는 제 기한(_retreating)으로 본다
         tx, ty = r.target
-        for o in self.virtual.values():
-            if o is r or o.removed:
-                continue
-            gap = _point_segment(o.x, o.y, r.x, r.y, tx, ty)
-            if (gap <= 2 * self.params.robot_radius_m
-                    and gap < math.dist((o.x, o.y), (r.x, r.y)) - 1e-9):
+        radius = self.params.robot_radius_m
+        behind = [(o.x, o.y, radius) for o in self.virtual.values() if o is not r and not o.removed]
+        behind += [(bx, by, size * math.sqrt(2) / 2) for bx, by, size in self.boxes]
+        for ox, oy, reach in behind:
+            gap = _point_segment(ox, oy, r.x, r.y, tx, ty)
+            if (gap <= radius + reach
+                    and gap < math.dist((ox, oy), (r.x, r.y)) - 1e-9):
                 self._finish_goal(r, self.core.on_retreat_result, False, "OBSTACLE_BEHIND")
                 return
         dist = math.dist((r.x, r.y), (tx, ty))
