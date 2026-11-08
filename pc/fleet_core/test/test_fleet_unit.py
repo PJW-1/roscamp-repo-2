@@ -108,12 +108,12 @@ def test_next_leg_starts_only_after_the_corner_was_reached():
 
 
 def test_path_mode_goes_round_the_corner_along_the_lanes():
-    """path 모드: 허가된 데까지 꺾어 가되 선은 모서리를 지난다."""
+    """path 모드: 허가된 데까지 꺾어 가되 선은 모서리 곁(half_width 안, 둥글린 원호)을 지난다."""
     core, _ = started({"r1": (9, 2)})
     move = cmds(core.tick(), "MoveCmd")[0]
     corner = core.site.waypoint_pose((9, 0))
     assert move.target_id != core.site.waypoint_id((9, 0))
-    assert corner in [p[:2] for p in move.path]
+    assert min(math.dist(corner, p[:2]) for p in move.path) <= core.site.half_width
 
 
 def test_new_grant_supersedes_the_running_goal_and_old_results_are_ignored():

@@ -16,6 +16,56 @@ from fleet_core.traffic.mission import _Mission
 POINT = "point"
 PATH = "path"
 GOAL_MODES = (POINT, PATH)
+ARC_STEP = math.radians(15.0)  # 원호를 이만큼마다 점으로 나눈다
+MIN_TURN = math.radians(1.0)  # 이보다 덜 꺾이면 곧은 것으로 본다
+MAX_TURN = math.radians(170.0)  # 이보다 더 꺾이면(거의 유턴) 그대로 둔다
+MIN_RADIUS_M = 0.02  # 이보다 작은 원호는 꺾인 점과 다름없어 그대로 둔다(아주 짧은 레인)
+
+
+def round_corners(points: list, roundable: list, radius: float, deviation: float,
+                  accept=None) -> list:
+    """꺾인 점을 반지름 radius 이하의 원호로 바꾼다(버전 2 4절, 기본 선택 13번 제안).
+
+    원호의 어느 점도 원래 꺾인 점에서 deviation보다 멀지 않다(그래서 레인에서도). 접점은
+    양쪽 레인의 절반 안이라 이웃 원호와 겹치지 않는다. roundable이 거짓인 점, 처음과 끝,
+    곧거나 거의 유턴인 점은 그대로 둔다. accept(i, 원호 점들)가 거짓이어도 그 점은 둔다.
+    """
+    if radius <= 0.0 or len(points) < 3:
+        return list(points)
+    out = [points[0]]
+    for i in range(1, len(points) - 1):
+        (ax, ay), (vx, vy), (bx, by) = points[i - 1], points[i], points[i + 1]
+        l1, l2 = math.dist((ax, ay), (vx, vy)), math.dist((vx, vy), (bx, by))
+        turn = 0.0
+        if l1 > 0.0 and l2 > 0.0:
+            u1 = ((vx - ax) / l1, (vy - ay) / l1)
+            u2 = ((bx - vx) / l2, (by - vy) / l2)
+            cross = u1[0] * u2[1] - u1[1] * u2[0]
+            turn = math.atan2(abs(cross), u1[0] * u2[0] + u1[1] * u2[1])
+        if not roundable[i] or not MIN_TURN <= turn <= MAX_TURN:
+            out.append(points[i])
+            continue
+        half = turn / 2.0
+        r = min(radius, deviation / (1.0 / math.cos(half) - 1.0),
+                min(l1, l2) / 2.0 / math.tan(half))
+        if r < MIN_RADIUS_M:
+            out.append(points[i])
+            continue
+        t = r * math.tan(half)
+        side = 1.0 if cross > 0 else -1.0  # 왼쪽으로 꺾이면 중심이 왼쪽
+        sx, sy = vx - u1[0] * t, vy - u1[1] * t
+        cx, cy = sx - u1[1] * r * side, sy + u1[0] * r * side
+        start = math.atan2(sy - cy, sx - cx)
+        steps = max(2, math.ceil(turn / ARC_STEP))
+        arc = [(cx + r * math.cos(start + side * turn * k / steps),
+                cy + r * math.sin(start + side * turn * k / steps)) for k in range(steps + 1)]
+        arc[-1] = (vx + u2[0] * t, vy + u2[1] * t)
+        if accept is not None and not accept(i, arc):
+            out.append(points[i])
+            continue
+        out += arc
+    out.append(points[-1])
+    return [p for k, p in enumerate(out) if k == 0 or math.dist(p, out[k - 1]) > 1e-9]
 
 
 class TrafficPath:
@@ -53,24 +103,46 @@ class TrafficPath:
             return ()
         points = [(m.x, m.y)]
         first = self._first_ahead(m, target_idx)
-        ahead = []
+        ahead, lane = [], []  # lane: 그 점이 레인 지점인가(자유 구역 경로 점이 아닌가)
         if first > 0 and (m.path[first - 1], m.path[first]) in m.free_paths:
             # 자유 구역을 지나는 중(버전 2 F-1): 받은 경로에서 로봇 앞 점들
             ahead += self._free_points_ahead(m, (m.path[first - 1], m.path[first]))[:-1]
+            lane += [False] * (len(ahead) - len(lane))
         for k in range(first, target_idx + 1):
             ahead.append(self.site.waypoint_pose(m.path[k]))
+            lane.append(True)
             key = (m.path[k], m.path[k + 1]) if k < target_idx else None
             if key in m.free_paths:
                 ahead += list(m.free_paths[key][1:-1])  # 받은 경로의 안쪽 점
+                lane += [False] * (len(ahead) - len(lane))
         if len(ahead) > 1 and math.dist(points[0], ahead[0]) < 1e-9:
             ahead.pop(0)  # 지점 위에 서 있다
+            lane.pop(0)
         points += ahead
+        lane = [False, *lane]  # 로봇 자리
+        # 앞뒤가 모두 레인 지점인 꺾인 곳만 둥글린다. 자유 구역 경로에 닿은 출입구는 둔다.
+        # 로봇 자리에서 오는 첫 꺾임도 둔다: 보고 위치의 잡음으로 원호가 레인 밖에서 시작한다
+        roundable = [0 < i < len(points) - 1 and lane[i - 1] and lane[i] and lane[i + 1]
+                     for i in range(len(points))]
+        points = round_corners(points, roundable, self.params.corner_radius_m,
+                               self.site.half_width, self._arc_stays_in(points))
         out = []
         for here, there in zip(points, points[1:], strict=False):
             gap = (there[0] - here[0], there[1] - here[1])
             out.append((*here, math.atan2(gap[1], gap[0]) if any(gap) else yaw))
         out.append((*points[-1], yaw))
         return tuple(out)
+
+    def _arc_stays_in(self, points: list):
+        """원호의 모든 점이 꺾인 지점이나 그 앞뒤 점의 구역에 속하는가(지도의 다른 레인 쪽으로
+        들어가 다른 구역 로봇처럼 보이면 안 된다)."""
+        def zone_at(x, y):
+            return self._zone(self.site.nearest_waypoint(x, y))
+
+        def accept(i, arc):
+            near = {zone_at(*points[k]) for k in (i - 1, i, i + 1)}
+            return all(zone_at(x, y) in near for x, y in arc)
+        return accept
 
     def _first_ahead(self, m: _Mission, target_idx: int) -> int:
         """선에 넣을 첫 지점. 지났으면 뺀다.

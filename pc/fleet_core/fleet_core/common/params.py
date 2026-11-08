@@ -86,6 +86,10 @@ class FleetParams:
     # Proposal (version 2 section 4, contract 0.8-draft MoveTo.final_goal): mark goals that end
     # at a lock boundary as not final. Records without it replay with every move final
     mark_final_goal: bool = False
+    # Proposal (version 2 section 4, default choice 13): path-mode corners become arcs of at
+    # most this radius that stay within half_width of the corner. 0 keeps the sharp corners;
+    # records without it replay with sharp corners
+    corner_radius_m: float = 0.0
 
 
 def load_params(path=None) -> FleetParams:

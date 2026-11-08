@@ -554,7 +554,9 @@ class SimWorld:
                 y = ay + (by - ay) * step / 4
                 off = min(_point_segment(x, y, lane.ax, lane.ay, lane.bx, lane.by)
                           for lane in self.site.lanes.values())
-                assert off < LINE_TOLERANCE_M or self._on_free_floor(x, y), \
+                # 둥글린 모서리(버전 2 4절)는 꺾인 점에서 half_width 안이라 레인에서도 그 안이다
+                rounded = self.params.corner_radius_m > 0 and off <= self.site.half_width
+                assert off < LINE_TOLERANCE_M or rounded or self._on_free_floor(x, y), \
                     f"{cmd} from ({r.x}, {r.y}) leaves the lanes"
         self._preempt(r)
         r.docked_at = ""

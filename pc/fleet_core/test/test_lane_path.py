@@ -23,7 +23,8 @@ REPO = Path(__file__).resolve().parents[3]
 
 def make(where, mode="path"):
     now = [0.0]
-    params = replace(load_params(), lane_goal_mode=mode)
+    # 꺾인 지점 자체를 보는 시험들이라 모서리 둥글리기(test_corner_rounding.py)는 끈다
+    params = replace(load_params(), lane_goal_mode=mode, corner_radius_m=0.0)
     core = TrafficController(load_lane_map(), params, list(where), lambda: now[0])
     for robot, node in where.items():
         place(core, robot, node)
@@ -519,7 +520,7 @@ def test_a_path_mode_record_line_carries_the_path():
     core.traffic.on_dispatch(7, "OUTBOUND", "r1")
     core.tick()
     out = [json.loads(line) for line in lines if '"out": "MoveCmd"' in line]
-    assert out and len(out[0]["path"]) == 3
+    assert out and len(out[0]["path"]) >= 3, "W, (둥글린) A, B"
 
 
 def test_move_cmd_keeps_its_old_positional_fields():
