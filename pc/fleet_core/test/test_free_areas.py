@@ -175,3 +175,9 @@ def test_a_free_path_crossing_a_notch_is_outside_the_floor():
 def test_a_gate_chord_leaving_the_floor_is_refused():
     with pytest.raises(LaneMapError, match="straight line"):
         site(u_map(gate_y=1.0))
+
+
+def test_one_point_is_checked_too():
+    s = site()
+    assert not s.free_path_outside("PLAZA", [(1.5, 1.0)])
+    assert s.free_path_outside("PLAZA", [(5.0, 5.0)]), "점 하나도 바닥 밖이면 밖이다"

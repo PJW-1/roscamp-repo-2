@@ -424,7 +424,7 @@ def test_the_free_area_scenarios_cross_the_plaza_on_the_planned_path():
         assert row["finished"], (scenario, row["error"])
         assert "FREE_PATH" in world.event_codes(), scenario
         assert "FREE_PATH_REJECTED" not in world.event_codes(), scenario
-    assert world.boxes and world.box_gap_min >= 0.03, "the box scenario keeps off the box"
+    assert world.boxes and world.box_gap_min > 0.0, "the robot body keeps off the box corners"
 
 
 def test_a_robot_on_the_straight_line_drives_into_the_box():

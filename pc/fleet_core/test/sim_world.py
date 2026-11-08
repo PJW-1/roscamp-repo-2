@@ -157,7 +157,7 @@ class SimWorld:
         self._queued_results: list = []
         self.min_true_release_distance = float("inf")
         self.path_refusals: list[tuple[float, str, int]] = []  # (시각, 로봇, goal_id)
-        self.box_gap_min = float("inf")  # 로봇 중심에서 상자 가장자리까지 가장 가까웠던 거리
+        self.box_gap_min = float("inf")  # 로봇 몸체와 상자 모서리 사이가 가장 가까웠던 거리
 
     # ---- public helpers for tests -------------------------------------------------------
 
@@ -670,7 +670,9 @@ class SimWorld:
     def _check_invariants(self):
         for r in self.virtual.values():
             for bx, by, size in self.boxes:
-                gap = math.dist((r.x, r.y), (bx, by)) - size / 2
+                # 몸체(robot_radius_m)와 상자 모서리(반 대각선)까지. 둘 다 원으로 보아 넉넉히 잰다
+                gap = (math.dist((r.x, r.y), (bx, by)) - size * math.sqrt(2) / 2
+                       - self.params.robot_radius_m)
                 self.box_gap_min = min(self.box_gap_min, gap)
                 assert r.removed or gap > 0.0, f"{r.name} drove into the box at ({bx}, {by})"
         zones = self.core.zones

@@ -45,3 +45,9 @@ def test_a_box_in_the_middle_of_a_short_crossing_is_passed_with_two_turns():
     assert gap_to(points, 1.35, 0.675) >= 0.03 + 0.12 - 1e-9
     assert all(1.0 - 1e-9 <= x <= 2.0 + 1e-9 and 0.5 - 1e-9 <= y <= 0.85 + 1e-9
                for x, y in points)
+
+
+def test_a_box_next_to_the_end_of_the_line_is_not_passed_straight():
+    box = (2.0, 0.66, 0.06)  # 목표 바로 옆. 투영이 선분 끝(t=1)에 걸린다
+    points = plan_path((1.0, 0.6), (2.0, 0.6), [box], clearance_m=0.12, polygon=FLOOR)
+    assert points is None or gap_to(points, 2.0, 0.66) >= 0.03 + 0.12 - 1e-9

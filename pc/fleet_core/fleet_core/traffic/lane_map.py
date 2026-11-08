@@ -243,7 +243,7 @@ class LaneMap:
         half_width까지 떨어져 있을 수 있으므로 끝에서 2 x half_width 안은 half_width까지 봐준다.
         """
         ends = (points[0], points[-1])
-        for a, b in zip(points, points[1:], strict=False):
+        for a, b in list(zip(points, points[1:], strict=False)) or [(points[0], points[0])]:
             n = max(1, math.ceil(math.dist(a, b) / step_m))
             for k in range(n + 1):
                 x, y = a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n

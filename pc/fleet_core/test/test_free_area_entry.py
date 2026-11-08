@@ -138,3 +138,19 @@ def test_the_status_shows_every_robot_in_the_way_of_an_all_or_nothing_request():
     assert d.core.zones.request("ghost", "P-1")
     d.tick(3)
     assert d.core.status_view("r1")["wait_robots"] == ("ghost",)
+
+
+def test_a_second_route_change_drops_the_exit_request_of_the_first():
+    d = Drive({"r1": "F1"})
+    d.tick(3)
+    m = d.m()
+    west, east = d.core._zone("QW"), d.core._zone("QO")
+    assert d.core.zones.request("ghost", west) and d.core.zones.request("ghost", east)
+    d.core._start_leg(m, m.phase, m.dest, "QW")
+    d.tick(2)
+    assert west in d.core.zones.requests_of("r1")
+    d.core._start_leg(m, m.phase, m.dest, "QO")
+    assert m.path[:4] == ["F1", "G3", "T2", "QO"]
+    d.tick(2)
+    assert west not in d.core.zones.requests_of("r1"), "앞 경로의 출구 요청은 거둔다"
+    assert east in d.core.zones.requests_of("r1")

@@ -4,6 +4,8 @@ ROS를 쓰지 않는다. FakePinky의 compute_path_to_pose 액션과 SimWorld가
 시작에서 목표까지 곧은 선이고, 상자(물체)가 그 선에서 `반 크기 + clearance` 안에 있으면 상자
 옆의 한 점을 거쳐 꺾는다. 그 선도 상자에 가까우면(짧은 길) 상자 앞뒤 옆의 두 점을 거친다. 바닥 다각형을 주면 바닥 안쪽으로 꺾는다(양쪽이 다 밖이면 None).
 점은 step_m 간격으로 촘촘히 낸다(Nav2 경로처럼).
+한계(가짜라서): 다각형은 꺾는 점만 안인지 보고 선분은 보지 않는다(오목한 바닥에서는 밖으로 나갈
+수 있다. 관제가 선분까지 다시 본다). 상자가 여럿이면 처음 걸린 상자 둘레만 시도한다.
 """
 from __future__ import annotations
 
@@ -47,7 +49,7 @@ def plan_path(start, goal, boxes=(), clearance_m: float = 0.12, polygon=None,
     for bx, by, size in boxes:
         reach = size / 2 + clearance_m
         gap, t = _gap(bx, by, start, goal)
-        if gap < reach and 0.0 < t < 1.0:
+        if gap < reach:  # 끝점 옆 상자도(투영이 0이나 1). 그러면 보통 길이 없다
             hits.append((t, bx, by, reach))
     if not hits:
         return _dense([start, goal], step_m)

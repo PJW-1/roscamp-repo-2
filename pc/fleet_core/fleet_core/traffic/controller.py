@@ -812,8 +812,10 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         requests = self.zones.requests_of(m.name)
         if old_next and old_next != new_next:
             self.zones.cancel_request(m.name, old_next)
-        if any(zone in self.site.free_areas for zone in requests):
-            # 자유 구역과 출구 다음 구역을 함께 청했다(F-1). 새 길에 필요 없는 것은 모두 거둔다
+        held = self.zones.held_by(m.name)
+        if any(zone in self.site.free_areas for zone in (*requests, *held)):
+            # 자유 구역과 출구 다음 구역을 함께 청했거나, 자유 구역을 쥐고 출구 다음 구역을
+            # 청했다(F-1). 새 길에 필요 없는 요청은 모두 거둔다
             needed = self._needed_zones(m)
             for zone in requests:
                 if zone not in needed:
