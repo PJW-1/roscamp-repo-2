@@ -326,7 +326,8 @@ def test_a_canceled_retreat_that_never_answers_isolates_the_robot():
     """1-A 재검수 4: 취소 뒤에도 결과도 잃음도 안 오면 deadlock_unresolved_s 뒤 격리한다.
     그러지 않으면 새 순환을 끝없이 미룬다."""
     d, m = at_the_gate()
-    retreat(d, m)
+    (cmd,) = [c for c in retreat(d, m) if isinstance(c, RetreatCmd)]
+    d.core._out.clear()
     d.now[0] = d.core._retreating[2] + 0.1
     d.core._finish_retreat(["r1", "r2"])  # 취소를 보낸다
     cancel_at = d.now[0]
@@ -337,4 +338,12 @@ def test_a_canceled_retreat_that_never_answers_isolates_the_robot():
             break
     assert m.fault == "ERROR" and m.fault_reason == "RETREAT_LOST"
     assert d.now[0] >= cancel_at + d.params.deadlock_unresolved_s
+    assert {"PLAZA", "F1"} <= set(d.core.zones.held_by("r1"))
+    assert [c for c in d.core._out if isinstance(c, CancelCmd)] == [CancelCmd("r1", cmd.goal_id)]
+    d.core.on_retreat_result("r1", cmd.goal_id, True)  # 늦게 온 결과는 아무것도 바꾸지 않는다
+    d.core.on_goal_lost("r1", cmd.goal_id)
+    assert m.goal is None and m.idx == 1 and m.fault_reason == "RETREAT_LOST"
+    d.now[0] += d.params.recover_check_s + 0.1
+    d.core._check_deadlock(d.now[0])  # 교착 감시가 기록을 정리하고, 격리된 로봇의 구역은 쥔다
+    assert d.core._retreating is None
     assert {"PLAZA", "F1"} <= set(d.core.zones.held_by("r1"))
