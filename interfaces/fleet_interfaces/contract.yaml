@@ -2,8 +2,11 @@
 # 팀 합의 전까지 모두 초안이다. QoS depth는 실제 Wi-Fi에서 측정해야 한다.
 version: 0.8-draft
 # 0.8 (2026-11-09, 제안(팀 합의 전)): MoveTo goal에 bool final_goal(기본 true)을 더했다. path 끝이 임무의
-# 마지막 지점이 아니면(잠금 경계) 거짓이다. 핑키는 그때 끝까지 남은 거리 d로 속도를 √(2·a·d) 아래로
-# 제한한다(nav2 speed_limit). 끝을 넘지 않는다는 규칙은 같다. FMS 개선 계획 버전 2 4절 horizon 최소판.
+# 마지막 지점이 아니면(잠금 경계) 거짓이다. 핑키는 그때 끝까지 남은 거리 d로 속도를 max(0.05 m/s,
+# √(2·a·d)) 아래로 제한한다(nav2 speed_limit). 0.05 m/s 바닥은 끝 앞에서 멈춰 버리지 않게 둔 것이라,
+# d가 v²/(2a)(a 0.25 m/s²에서 5 mm)보다 짧으면 상한이 √(2·a·d)보다 크다. 이 제한만으로는 끝을 못
+# 넘는다고 보장하지 않고, 끝에서 서는 것은 FollowPath 목표 도달이 맡는다(넘는 폭은 많아야 그 5 mm).
+# FMS 개선 계획 버전 2 4절 horizon 최소판.
 # 0.7 (2026-11-09, 제안(팀 합의 전)): 액션 /{pinky}/retreat(fleet_interfaces/action/Retreat)를 더했다.
 # 교착을 풀 때 관제가 한 로봇에게 보는 방향 그대로 뒤로 곧게 물러나라고 시킨다(distance_m, speed_mps).
 # 핑키는 자가 복구와 같은 BackUp 실행 코드로 간다. 결과 reason은 OBSTACLE_BEHIND, TIMEOUT, CANCELED,
