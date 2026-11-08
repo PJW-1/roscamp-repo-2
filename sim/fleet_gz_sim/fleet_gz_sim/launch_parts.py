@@ -53,10 +53,12 @@ def bridge_args(ns: str) -> tuple[list[str], list[tuple[str, str]]]:
     return args, remaps
 
 
-def world(gui: bool) -> list:
-    """Gazebo 서버(끝나면 launch도 끝)와 화면. 브리지는 bridge()가 따로 만든다."""
+def world(gui: bool, world_file: str = "") -> list:
+    """Gazebo 서버(끝나면 launch도 끝)와 화면. 브리지는 bridge()가 따로 만든다.
+    world_file이 비면 lane_arena. 어느 월드든 월드 이름은 WORLD다(arena.py)."""
     server = ExecuteProcess(cmd=["gz", "sim", "-r", "-s", "-v", "2",
-                                 str(share("fleet_gz_sim") / "worlds" / f"{WORLD}.sdf")],
+                                 world_file or str(share("fleet_gz_sim") / "worlds" /
+                                                   f"{WORLD}.sdf")],
                             name="gz_server", output="screen")
     actions = [
         # Gazebo 통신(gz-transport)도 이 컴퓨터 안에서만. 셸에 남은 GZ_IP(LAN 주소일 수 있다)는
@@ -98,11 +100,13 @@ def _rviz_config(ns: str) -> str:
 
 
 def pinky(ns: str, x, y, yaw, *, heartbeat_timeout_s="1.5", nav_log_level="warn", fsm=True,
-          rviz=False, dock_aside=False, nav_composition=False) -> list:
+          rviz=False, dock_aside=False, nav_composition=False, nav_map="",
+          nav_map_fine="") -> list:
     """핑키 한 대: 모델, Nav2, pinky_fsm, RViz. 브리지는 bridge()에 이 로봇 이름을 넣는다.
 
     dock_aside: pinky_fsm의 dock 서버를 /<ns>/dock_fsm으로 비켜 둔다(시뮬 전용 도크 대역용).
-    nav_composition: Nav2 노드 9개를 프로세스 하나(component container)로 띄운다."""
+    nav_composition: Nav2 노드 9개를 프로세스 하나(component container)로 띄운다.
+    nav_map, nav_map_fine: Nav2 지도 둘. 비면 lane_arena 지도."""
     me, nav = share("fleet_gz_sim"), share("pinky_nav_config")
     x, y, yaw = str(x), str(y), str(yaw)
     description = ParameterValue(
@@ -119,8 +123,8 @@ def pinky(ns: str, x, y, yaw, *, heartbeat_timeout_s="1.5", nav_log_level="warn"
             PythonLaunchDescriptionSource(str(nav / "launch" / "nav2.launch.py")),
             launch_arguments={
                 "namespace": ns, "use_sim_time": "true",
-                "map": str(me / "maps" / "lane_arena.yaml"),
-                "map_fine": str(me / "maps" / "lane_arena_fine.yaml"),
+                "map": nav_map or str(me / "maps" / f"{WORLD}.yaml"),
+                "map_fine": nav_map_fine or str(me / "maps" / f"{WORLD}_fine.yaml"),
                 "initial_x": x, "initial_y": y, "initial_yaw": yaw,
                 "log_level": nav_log_level,
                 "use_composition": "true" if nav_composition else "false",

@@ -125,3 +125,15 @@ def test_obstacle_schedule_parses_on_the_warehouse_map():
     assert schedule.repeat_every_s is not None
     for one in schedule.obstacles:
         assert 20 <= one.duration_s <= 40, one.label
+
+
+def test_every_blocked_lane_leaves_a_way_around():
+    """A robot at the tail of a blocked lane must have another exit, so the fleet can DETOUR
+    instead of waiting for the box to go."""
+    schedule = obstacles.load_schedule(PKG / "obstacles" / "warehouse.yaml", LANES)
+    for one in schedule.obstacles:
+        a, b = one.lane
+        tails = [(a, b)] if (b, a) not in LANES.lanes else [(a, b), (b, a)]
+        for tail, head in tails:
+            exits = [lane for lane in LANES.lanes if lane[0] == tail and lane[1] != head]
+            assert exits, f"{one.label}: {tail} has no other exit than {head}"
