@@ -484,3 +484,18 @@ def test_the_crossing_map_leaves_room_to_stop_short_on_every_exit_lane():
              if site.zone_of[a] != site.zone_of[b] and b not in gates
              and lane.span < 0.2 + 0.15 + 0.005]  # 해제는 s > 0.2(엄격)라 5 mm 더
     assert short == []
+
+
+def test_the_crossing_map_has_no_lane_conflict_pairs():
+    """2차 Gazebo 실행: O로 들어오는 E2->O와 O에서 나가는 O->F0가 예각이라 (F0, O)가 충돌 쌍이었다.
+    O에서 떠나려는 로봇의 F0 요청이 O를 먼저 기다린 E2의 로봇 뒤에 서서 둘이 교착했다
+    (DEADLOCK_UNRESOLVED, 격리). 이 지도에는 레인끼리의 충돌 쌍을 두지 않는다(자유 구역 단위가
+    든 쌍은 칸 모드에서 칸 쌍으로 바뀐다)."""
+    from pathlib import Path
+
+    from fleet_core.traffic.lane_map import load_lane_map
+    maps = Path(__file__).resolve().parents[3] / "sim" / "fake_robots" / "maps"
+    site = load_lane_map(str(maps / "feature_map_crossing.yaml"))
+    lanes_only = [pair for pair in site.conflict_pairs(2 * 0.08, 0.2)
+                  if not pair & set(site.free_areas)]
+    assert lanes_only == []
