@@ -1,0 +1,8 @@
+map,scenario,mode,seed,finished,error,orders_total,orders_shipped,finish_s,end_s,wait_total_s,object_still_s,object_hits,interventions,operator_refused,error_entries,stops,detours,deadlocks,isolations,line_idle_s,min_gap_m,path_m,placement_outside,pre_admits,replans,sidesteps,slowdowns,tick_ms_max,tick_ms_mean,tick_ms_p99,unresolved,violations,wait_pinky1_s,wait_pinky2_s,wait_pinky3_s
+warehouse,warehouse_rush,freefloor,9,True,,36,36,1296.0,1313.7,232.6,,,0,0,0,74,0,21,0,997.7,0.2901,604.622,0,0,44,1,48,90.917,2.477,9.566,0,0,59.6,83.2,89.8
+warehouse,warehouse_rush,freefloor,10,True,,36,36,1269.3,1292.0,324.9,,,0,0,0,94,0,36,0,1006.8,0.2876,609.077,0,0,40,0,77,118.63,2.889,10.573,0,0,108.7,87.0,129.2
+warehouse,warehouse_rush,freefloor,11,True,,36,36,1274.3,1300.8,351.2,,,0,0,1,82,0,41,0,993.4,0.2879,598.153,0,0,36,1,93,124.638,2.645,10.589,0,0,118.6,111.2,121.4
+warehouse,warehouse_rush,freefloor,12,True,,36,36,1329.2,1351.7,270.7,,,0,0,0,96,0,29,0,1009.3,0.2897,617.995,0,0,34,1,57,103.789,2.176,8.326,0,0,94.9,83.8,92.0
+warehouse,warehouse_rush,freefloor,13,True,,36,36,1351.5,1391.8,408.6,,,0,0,1,95,0,41,0,1120.6,0.2866,623.497,0,0,65,4,76,137.455,2.206,9.313,2,0,152.6,133.1,122.9
+warehouse,warehouse_rush,freefloor,14,True,,36,36,1311.2,1329.6,221.5,,,0,0,1,75,0,21,0,955.7,0.287,601.724,0,0,35,1,50,116.782,2.007,7.727,0,0,68.9,92.5,60.1
+warehouse,warehouse_rush,freefloor,15,True,,36,36,1308.5,1324.7,294.0,,,0,0,0,72,0,35,0,1044.3,0.2906,616.951,0,0,51,3,61,118.657,2.136,9.08,1,0,82.1,89.0,122.9

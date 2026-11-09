@@ -56,6 +56,27 @@ Columns (seconds are fake-clock seconds):
                     arrival is not a stop). FakePinky has no deceleration, so slowdowns are not
                     counted. Standing still for a long time is one stop
     detours         DETOUR events
+Columns shared with the free-floor comparison (tools/compare_floor.py on freefloor-route), with
+the same meaning there:
+    min_gap_m       smallest true distance between two robot centres on the floor, taken after
+                    every step (not at the start)
+    path_m          true distance driven by all robots on the floor (a reinstated robot's jump
+                    back to its start counts, as in compare_floor)
+    tick_ms_mean    FleetManager.tick wall time (ms) over the run: mean, max and the 99th
+    tick_ms_max     percentile (sorted[int(0.99 * (n - 1))]). Wall time on this machine, so
+    tick_ms_p99     only runs made back to back under the same load compare
+    deadlocks       DEADLOCK_DETECTED events; unresolved: DEADLOCK_UNRESOLVED events
+    isolations      ROBOT_ISOLATED events
+    violations      1 when an invariant broke (the run stops there), else 0. SimWorld checks
+                    lane invariants, the free-floor world cell invariants. As in compare_floor,
+                    any AssertionError in the run loop counts, and the step that broke is not
+                    in min_gap_m and path_m
+Options for other robots and params (the real-arena row): --speed and --noise replace every
+robot's speed_mps and pose_noise_m (a robot without them takes the fake robots' 0.2 m/s and no
+noise), --params takes a params file (a name in pc/fleet_core/fleet_core/data or a .yaml path)
+instead of the shipped fleet_params.yaml; lane_goal_mode still comes from --modes. Scenario
+names are looked up in sim/fake_robots/scenarios, then sim/fleet_gz_sim/scenarios, then
+tools/scenarios (long_orders_100).
 The run goes on after the last order until every robot still on the floor is PARKED, so waits
 and stops cover the trip home. The summary (<out>_summary.csv and the table on stdout) gives
 mean, min and max over seeds; `finished` over all runs, every other metric over finished runs
@@ -65,6 +86,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import itertools
 import math
 import sys
 import time
@@ -86,6 +108,9 @@ from fleet_core.traffic.lane_map import load_lane_map  # noqa: E402
 from sim_world import DT, SimWorld  # noqa: E402
 
 SCENARIOS = REPO / "sim" / "fake_robots" / "scenarios"
+SCENARIO_DIRS = (SCENARIOS, REPO / "sim" / "fleet_gz_sim" / "scenarios",
+                 REPO / "tools" / "scenarios")
+PARAMS_DIR = REPO / "pc" / "fleet_core" / "fleet_core" / "data"
 MAPS = REPO / "sim" / "fake_robots" / "maps"
 DEFAULT_MAP = "lane_map"
 DEFAULT_PLAN = {
@@ -112,7 +137,8 @@ OPERATOR_RETRY_S = 1.0
 COLUMNS = ["map", "scenario", "mode", "seed", "finished", "error", "orders_total",
            "orders_shipped", "finish_s", "end_s", "wait_total_s", "object_still_s",
            "object_hits", "interventions", "operator_refused", "error_entries", "stops",
-           "detours"]
+           "detours", "min_gap_m", "path_m", "tick_ms_mean", "tick_ms_max", "tick_ms_p99",
+           "deadlocks", "unresolved", "isolations", "violations"]
 SUMMARY_COLUMNS = ["map", "scenario", "mode", "metric", "runs", "n", "mean", "min", "max"]
 NOT_METRICS = {"map", "scenario", "mode", "seed", "error"}
 
@@ -232,6 +258,55 @@ class Operator:
         r.basket = {}
 
 
+class Spacing:
+    """Smallest true gap between two robots and true distance driven, as compare_floor.py takes
+    them: observe after every step, robots off the floor left out."""
+
+    def __init__(self, world):
+        self.min_gap = math.inf
+        self.path_m = 0.0
+        self._last = {n: (r.x, r.y) for n, r in world.virtual.items()}
+
+    def observe(self, world) -> None:
+        present = [(n, r) for n, r in world.virtual.items() if not r.removed]
+        for (_, a), (_, b) in itertools.combinations(present, 2):
+            self.min_gap = min(self.min_gap, math.hypot(a.x - b.x, a.y - b.y))
+        for name, r in present:
+            self.path_m += math.dist(self._last.get(name, (r.x, r.y)), (r.x, r.y))
+            self._last[name] = (r.x, r.y)
+
+
+def time_ticks(world) -> list[float]:
+    """Wrap world.core.tick to keep each call's wall time (s) in the returned list."""
+    ticks: list[float] = []
+    tick = world.core.tick
+
+    def timed():
+        start = time.perf_counter()
+        out = tick()
+        ticks.append(time.perf_counter() - start)
+        return out
+
+    world.core.tick = timed
+    return ticks
+
+
+EVENT_COLUMNS = {"detours": "DETOUR", "deadlocks": "DEADLOCK_DETECTED",
+                 "unresolved": "DEADLOCK_UNRESOLVED", "isolations": "ROBOT_ISOLATED"}
+
+
+def event_counts(events) -> dict:
+    return {column: sum(e.code == code for e in events) for column, code in EVENT_COLUMNS.items()}
+
+
+def tick_stats(ticks) -> dict:
+    if not ticks:
+        return {"tick_ms_mean": "", "tick_ms_max": "", "tick_ms_p99": ""}
+    return {"tick_ms_mean": round(1000 * sum(ticks) / len(ticks), 3),
+            "tick_ms_max": round(1000 * max(ticks), 3),
+            "tick_ms_p99": round(1000 * sorted(ticks)[int(0.99 * (len(ticks) - 1))], 3)}
+
+
 def load_map(name):
     if name == DEFAULT_MAP:
         return load_lane_map()
@@ -244,8 +319,18 @@ def map_name(name) -> str:
 
 
 def load_scenario(name) -> dict:
-    path = Path(name) if name.endswith(".yaml") else SCENARIOS / f"{name}.yaml"
+    if name.endswith(".yaml"):
+        path = Path(name)
+    else:
+        found = [d / f"{name}.yaml" for d in SCENARIO_DIRS if (d / f"{name}.yaml").is_file()]
+        path = found[0] if found else SCENARIOS / f"{name}.yaml"
     return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def load_params_file(name=None):
+    if name is None:
+        return load_params()
+    return load_params(Path(name) if name.endswith(".yaml") else PARAMS_DIR / f"{name}.yaml")
 
 
 def scenario_name(name) -> str:
@@ -264,10 +349,16 @@ def _faults(data) -> tuple[list, list]:
     return world, operator
 
 
-def build_world(data, map_name_, seed, mode, changes=None) -> SimWorld:
+def build_world(data, map_name_, seed, mode, changes=None, speed=None, noise=None,
+                params=None) -> SimWorld:
     world_faults, _ = _faults(data)
     site = load_map(map_name_)
     parsed = parse_scenario(data, site)  # the fakes' checks and defaults
+    robots = {}
+    for name, spec in data["robots"].items():
+        cfg = parsed.robots[name]
+        robots[name] = {**spec, "speed_mps": cfg.speed_mps if speed is None else speed,
+                        "pose_noise_m": cfg.pose_noise_m if noise is None else noise}
     if parsed.arm.fail_rate:
         raise ValueError("arm fail_rate is not supported by the baseline")
     stock: dict[str, int] = {}
@@ -278,9 +369,9 @@ def build_world(data, map_name_, seed, mode, changes=None) -> SimWorld:
         raise ValueError(f"inventory {parsed.inventory} differs from the summed stock {stock}; "
                          "SimWorld's central keeps no separate record")
     return SimWorld(seed=seed, orders=[dict(o) for o in data["orders"]], stock=stock,
-                    robots={n: dict(spec) for n, spec in data["robots"].items()},
-                    faults=world_faults, site=site,
-                    params=replace(load_params(), lane_goal_mode=mode, **(changes or {})),
+                    robots=robots, faults=world_faults, site=site,
+                    params=replace(load_params_file(params), lane_goal_mode=mode,
+                                   **(changes or {})),
                     arm_s_per_item=parsed.arm.seconds_per_item,
                     swap_step_s=parsed.arm.swap_seconds / 2,  # take, then put
                     dock_s=parsed.dock.duration_s,
@@ -295,22 +386,25 @@ def _blank_row(map_, scenario, mode, seed, robots, total) -> dict:
     return row
 
 
-def run_one(map_, scenario, seed, mode, timeout_s=None) -> dict:
-    return run_with_world(map_, scenario, seed, mode, timeout_s)[0]
+def run_one(map_, scenario, seed, mode, timeout_s=None, **options) -> dict:
+    return run_with_world(map_, scenario, seed, mode, timeout_s, **options)[0]
 
 
-def run_with_world(map_, scenario, seed, mode, timeout_s=None) -> tuple[dict, SimWorld | None]:
+def run_with_world(map_, scenario, seed, mode, timeout_s=None, speed=None, noise=None,
+                   params=None) -> tuple[dict, SimWorld | None]:
     data = load_scenario(scenario)
     row = _blank_row(map_name(map_), scenario_name(scenario), mode, seed, data["robots"],
                      len(data["orders"]))
     try:
         world = build_world(data, map_, seed, mode,
-                            SCENARIO_PARAMS.get(scenario_name(scenario)))
+                            SCENARIO_PARAMS.get(scenario_name(scenario)), speed, noise, params)
     except (ValueError, KeyError) as error:
         row["error"] = f"cannot build: {error!r}"
         return row, None
     _, actions = _faults(data)
     meter = Meter(list(world.robots), DT)
+    spacing = Spacing(world)
+    ticks = time_ticks(world)
     operator = Operator(world, actions)
     limit = timeout_s or parse_scenario(data, world.site).timeout_s
     finish = None
@@ -321,6 +415,7 @@ def run_with_world(map_, scenario, seed, mode, timeout_s=None) -> tuple[dict, Si
             operator.act()
             world.step()
             meter.observe(world)
+            spacing.observe(world)
             if finish is None and world.all_orders_final():
                 # SimWorld's central takes a report one step after the tick that sent it
                 # (no orders, no report: nothing to wait for, so 0)
@@ -344,7 +439,11 @@ def run_with_world(map_, scenario, seed, mode, timeout_s=None) -> tuple[dict, Si
         operator_refused=operator.refused,
         error_entries=meter.error_entries,
         stops=meter.stops,
-        detours=sum(e.code == "DETOUR" for e in world.events),
+        **event_counts(world.events),
+        min_gap_m=round(spacing.min_gap, 4) if spacing.min_gap < math.inf else "",
+        path_m=round(spacing.path_m, 3),
+        **tick_stats(ticks),
+        violations=int(row["error"].startswith("invariant")),
     )
     row.update({f"wait_{r}_s": round(s, 3) for r, s in meter.wait.items()})
     if any(f["type"] == "blocked" for f in data.get("faults") or []):
@@ -406,7 +505,9 @@ def write_summary(path, summary) -> None:
 
 
 TABLE_METRICS = ("finished", "finish_s", "wait_total_s", "object_still_s", "interventions",
-                 "error_entries", "stops", "detours")
+                 "error_entries", "stops", "detours", "path_m", "min_gap_m", "tick_ms_mean",
+                 "tick_ms_p99", "deadlocks", "unresolved", "isolations")
+FINE_METRICS = ("min_gap_m", "tick_ms_mean", "tick_ms_p99")  # below 1, so three decimals
 
 
 def table(summary) -> str:
@@ -426,6 +527,8 @@ def table(summary) -> str:
                 shown.append(f"{round(s['mean'] * s['runs'])}/{s['runs']}")
             elif s["min"] == s["max"]:
                 shown.append(f"{s['mean']:g}")
+            elif metric in FINE_METRICS:
+                shown.append(f"{s['mean']:.3f} ({s['min']:.3f}-{s['max']:.3f})")
             else:
                 shown.append(f"{s['mean']:.1f} ({s['min']:g}-{s['max']:g})")
         lines.append("| " + " | ".join([*key, *shown]) + " |")
@@ -456,6 +559,11 @@ def main(argv=None) -> int:
     parser.add_argument("--out", type=Path, default=Path("baseline.csv"))
     parser.add_argument("--summary", type=Path, help="default: <out>_summary.csv")
     parser.add_argument("--timeout", type=float, help="fake seconds; default: the scenario's")
+    parser.add_argument("--speed", type=float, help="m/s for every robot; default: scenario's")
+    parser.add_argument("--noise", type=float,
+                        help="pose noise (m, gaussian sigma) for every robot; default: scenario's")
+    parser.add_argument("--params", help="params file: a name in fleet_core/data or a .yaml path;"
+                        " default: the shipped fleet_params.yaml")
     args = parser.parse_args(argv)
     summary_path = args.summary or args.out.with_name(f"{args.out.stem}_summary.csv")
     args.out.parent.mkdir(parents=True, exist_ok=True)
@@ -466,7 +574,8 @@ def main(argv=None) -> int:
             if mode != "path" and scenario_name(scenario) in PATH_ONLY:
                 continue
             for seed in args.seeds:
-                row = run_one(map_, scenario, seed, mode, args.timeout)
+                row = run_one(map_, scenario, seed, mode, args.timeout, speed=args.speed,
+                              noise=args.noise, params=args.params)
                 rows.append(row)
                 print(f"{row['map']} {row['scenario']} {mode} seed {seed}: "
                       f"finish {row['finish_s'] or '-'} {row['error']}", file=sys.stderr,
