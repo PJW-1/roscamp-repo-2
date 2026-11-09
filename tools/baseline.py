@@ -68,7 +68,9 @@ the same meaning there:
     deadlocks       DEADLOCK_DETECTED events; unresolved: DEADLOCK_UNRESOLVED events
     isolations      ROBOT_ISOLATED events
     violations      1 when an invariant broke (the run stops there), else 0. SimWorld checks
-                    lane invariants, the free-floor world cell invariants
+                    lane invariants, the free-floor world cell invariants. As in compare_floor,
+                    any AssertionError in the run loop counts, and the step that broke is not
+                    in min_gap_m and path_m
 Options for other robots and params (the real-arena row): --speed and --noise replace every
 robot's speed_mps and pose_noise_m (a robot without them takes the fake robots' 0.2 m/s and no
 noise), --params takes a params file (a name in pc/fleet_core/fleet_core/data or a .yaml path)
@@ -289,6 +291,14 @@ def time_ticks(world) -> list[float]:
     return ticks
 
 
+EVENT_COLUMNS = {"detours": "DETOUR", "deadlocks": "DEADLOCK_DETECTED",
+                 "unresolved": "DEADLOCK_UNRESOLVED", "isolations": "ROBOT_ISOLATED"}
+
+
+def event_counts(events) -> dict:
+    return {column: sum(e.code == code for e in events) for column, code in EVENT_COLUMNS.items()}
+
+
 def tick_stats(ticks) -> dict:
     if not ticks:
         return {"tick_ms_mean": "", "tick_ms_max": "", "tick_ms_p99": ""}
@@ -429,13 +439,10 @@ def run_with_world(map_, scenario, seed, mode, timeout_s=None, speed=None, noise
         operator_refused=operator.refused,
         error_entries=meter.error_entries,
         stops=meter.stops,
-        detours=sum(e.code == "DETOUR" for e in world.events),
+        **event_counts(world.events),
         min_gap_m=round(spacing.min_gap, 4) if spacing.min_gap < math.inf else "",
         path_m=round(spacing.path_m, 3),
         **tick_stats(ticks),
-        deadlocks=sum(e.code == "DEADLOCK_DETECTED" for e in world.events),
-        unresolved=sum(e.code == "DEADLOCK_UNRESOLVED" for e in world.events),
-        isolations=sum(e.code == "ROBOT_ISOLATED" for e in world.events),
         violations=int(row["error"].startswith("invariant")),
     )
     row.update({f"wait_{r}_s": round(s, 3) for r, s in meter.wait.items()})

@@ -586,6 +586,14 @@ def test_a_run_fills_the_free_floor_columns():
             "unresolved", "isolations", "violations"} <= set(baseline.COLUMNS)
 
 
+def test_deadlock_and_isolation_columns_count_their_own_events():
+    codes = ["DEADLOCK_DETECTED", "DETOUR", "DEADLOCK_DETECTED", "DEADLOCK_UNRESOLVED",
+             "ROBOT_ISOLATED", "DEADLOCK_RETREAT", "DETOUR"]
+    events = [SimpleNamespace(code=c) for c in codes]
+    assert baseline.event_counts(events) == {"detours": 2, "deadlocks": 2, "unresolved": 1,
+                                             "isolations": 1}
+
+
 def test_a_broken_invariant_counts_as_one_violation(monkeypatch):
     import sim_world
 
