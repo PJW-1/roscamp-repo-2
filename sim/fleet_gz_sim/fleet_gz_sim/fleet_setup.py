@@ -64,22 +64,44 @@ class Arena:
 
 
 def arena_for(scenario_file, gz_share: str | Path, fake_share: str | Path) -> Arena:
-    """시나리오의 `map`이 없으면 lane_arena, 있으면 fake_robots/maps/<map>.yaml 레인 지도와 함께
-    sites/<map>.yaml이 있는 지도는 arena.py가 그것으로 만든 월드와 지도, 없는 지도는 lane_arena의
-    월드와 지도(버전 2 F-2. 그 레인 지도가 lane_arena 벽 안에 들어야 한다)."""
+    """시나리오의 `map`이 없으면 lane_arena와 기본 레인 지도.
+
+    sites/<map>.yaml이 있는 지도는 arena.py가 그것으로 만든 월드와 지도, 그리고 그 site의
+    lane_map(월드의 레인 그림과 상자 여유가 그 지도로 만들어졌다). 없는 지도는 lane_arena의 월드와
+    지도에 레인 지도만 바꾼다(버전 2 F-2. 그 레인 지도가 lane_arena 벽 안에 들어야 한다). 이때
+    레인 지도는 버전 2 scenario_map_file처럼 시나리오 파일 옆 maps 폴더를 먼저, 다음에
+    fake_robots/maps를 본다."""
     data = yaml.safe_load(Path(scenario_file).read_text(encoding="utf-8")) or {}
     name = data.get("map") or ""
     gz = Path(gz_share)
-    arena = name if name and (gz / "sites" / f"{name}.yaml").is_file() else "lane_arena"
-    found = Arena(arena, str(gz / "worlds" / f"{arena}.sdf"), str(gz / "maps" / f"{arena}.yaml"),
-                  str(gz / "maps" / f"{arena}_fine.yaml"),
-                  str(Path(fake_share) / "maps" / f"{name}.yaml") if name else "")
+    site_file = gz / "sites" / f"{name}.yaml"
+    if name and site_file.is_file():
+        lane = (yaml.safe_load(site_file.read_text(encoding="utf-8")) or {}).get("lane_map") or ""
+        found = Arena(name, str(gz / "worlds" / f"{name}.sdf"), str(gz / "maps" / f"{name}.yaml"),
+                      str(gz / "maps" / f"{name}_fine.yaml"),
+                      str(Path(fake_share) / "maps" / f"{lane}.yaml") if lane else "")
+    else:
+        found = Arena("lane_arena", str(gz / "worlds" / "lane_arena.sdf"),
+                      str(gz / "maps" / "lane_arena.yaml"),
+                      str(gz / "maps" / "lane_arena_fine.yaml"),
+                      _lane_map_file(scenario_file, name, gz, fake_share))
     missing = [p for p in (found.world, found.nav_map, found.nav_map_fine, found.lane_map)
                if p and not Path(p).is_file()]
     if missing:
         raise ScenarioUnfit(f"{Path(scenario_file).name} wants map {name!r}, but there is no "
                             f"{', '.join(missing)} (python3 -m fleet_gz_sim.arena --site {name})")
     return found
+
+
+def _lane_map_file(scenario_file, name: str, gz: Path, fake_share: str | Path) -> str:
+    """site가 없는 지도 이름의 레인 지도 파일. 시나리오 옆 maps 폴더(Gazebo 지도 폴더는 빼고), 다음
+    fake_robots/maps. 이름이 없으면 ""(기본 지도)."""
+    if not name:
+        return ""
+    beside = Path(scenario_file).resolve().parent.parent / "maps" / f"{name}.yaml"
+    if beside.is_file() and beside.parent.resolve() != (gz / "maps").resolve():
+        return str(beside)
+    return str(Path(fake_share) / "maps" / f"{name}.yaml")
 
 
 def load(path, lane_map_file: str = ""):
