@@ -88,6 +88,9 @@ class TrafficFreeArea:
     def on_plan_result(self, robot, plan_id, points) -> None:
         """경로 계산의 답. 실패면 points가 None이거나 비었다. 지금 기다리는 요청만 본다."""
         m = self._missions.get(robot)
+        if m is not None and m.detour is not None and m.detour.plan_id == plan_id:
+            self._detour_answer(m, points)  # 막힌 로봇의 비켜 갈 길(1-C, borrow.py)
+            return
         if m is None or m.plan_wait is None or m.plan_wait[1] != plan_id:
             return
         key = m.plan_wait[0]

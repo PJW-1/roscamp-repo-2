@@ -72,6 +72,22 @@ class _Block:
     clear_n: int = 0  # BLOCKED가 아닌 연속 보고 수
     marked: bool = False  # LANE_BLOCKED를 냈다
     still_n: int = 0  # 취소가 끝난 뒤 서 있는 연속 보고 수
+    detour_tried: bool = False  # 이번 막힘에 비켜 갈 길을 이미 시도했다(1-C)
+    detour_ended: float | None = None  # 마지막 시도를 거둔 시각. 표시 뒤 borrow_wait_s마다 다시
+
+
+@dataclass
+class _Detour:
+    """막힌 로봇 하나의 비켜 가기·빌리기 시도(1-C). 경로를 기다리거나 빌리기를 기다린다."""
+    targets: list  # 다시 붙을 경로 인덱스 후보, 앞 것부터
+    started: float  # 첫 경로 요청 시각
+    plan_id: int | None = None  # 기다리는 경로 계산 요청
+    asked_at: float = 0.0
+    points: tuple = ()  # 받아들인 경로(로봇 자리에서 다시 붙을 지점까지)
+    target_idx: int = 0  # 그 경로가 다시 붙는 경로 인덱스
+    touched: frozenset = frozenset()  # 그 경로가 닿는 구역
+    borrow_since: float | None = None  # 빌리기를 기다리기 시작한 시각
+    why: list = field(default_factory=list)  # 앞 후보를 못 쓴 이유들
 
 
 @dataclass
@@ -124,6 +140,9 @@ class _Mission:
     plan_wait: tuple | None = None  # (가상 레인, plan_id, 청한 시각). 경로 계산 답을 기다린다
     claims: dict = field(default_factory=dict)  # 자유 구역 -> _Claim, 칸 모드에서 청한 칸 묶음(F-2)
     borrowed: set = field(default_factory=set)  # 빌린 구역(1-C). 경로 밖이어도 쥔다
+    detour: _Detour | None = None  # 막힌 뒤 비켜 갈 길을 청하거나 빌리기를 기다린다(1-C)
+    lent: set = field(default_factory=set)  # 빌렸고 아직 놓지 않은 구역. 놓으면 ZONE_RETURNED
+    detour_from: tuple | None = None  # 우회 goal을 보낸 자리(1-C). 떠나지 못한 실패를 가린다
     detour_at: object = None  # 우회를 고른 지점. 여기를 떠나면 detour_avoid는 뜻이 없다
     detour_avoid: tuple = ()  # 그 지점에서 포기한 다음 구역들. 되돌아가지 않는다
     lane_ref: tuple | None = None  # off_lane을 센 레인(a, b)

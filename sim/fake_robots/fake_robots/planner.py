@@ -4,6 +4,8 @@ ROS를 쓰지 않는다. FakePinky의 compute_path_to_pose 액션과 SimWorld가
 시작에서 목표까지 곧은 선이고, 상자(물체)가 그 선에서 `반 크기 + clearance` 안에 있으면 상자
 옆의 한 점을 거쳐 꺾는다. 그 선도 상자에 가까우면(짧은 길) 상자 앞뒤 옆의 두 점을 거친다. 바닥 다각형을 주면 바닥 안쪽으로 꺾는다(양쪽이 다 밖이면 None).
 점은 step_m 간격으로 촘촘히 낸다(Nav2 경로처럼).
+레인 비켜 가기(버전 2 1-C)에는 바닥 대신 floor(레인 선분들)를 준다. 꺾은 길의 모든 점이 어떤
+레인에서 floor_m 안일 때만 쓴다(실물 Nav2가 벽을 피하듯 가짜는 레인 곁 바닥으로만 비킨다).
 한계(가짜라서): 다각형은 꺾는 점만 안인지 보고 선분은 보지 않는다(오목한 바닥에서는 밖으로 나갈
 수 있다. 관제가 선분까지 다시 본다). 상자가 여럿이면 처음 걸린 상자 둘레만 시도한다.
 """
@@ -58,9 +60,13 @@ def _dense(points, step_m: float) -> list[tuple[float, float]]:
     return out
 
 
+def _near_floor(points, floor, floor_m: float) -> bool:
+    return all(any(_gap(x, y, a, b)[0] <= floor_m for a, b in floor) for x, y in points)
+
+
 def plan_path(start, goal, boxes=(), clearance_m: float = 0.12, polygon=None,
-              step_m: float = 0.05):
-    """(x, y) 점 목록, 못 찾으면 None. boxes는 (x, y, size_m)들."""
+              step_m: float = 0.05, floor=None, floor_m: float = 0.16):
+    """(x, y) 점 목록, 못 찾으면 None. boxes는 (x, y, size_m)들. floor는 ((ax, ay), (bx, by))들."""
     start, goal = (float(start[0]), float(start[1])), (float(goal[0]), float(goal[1]))
     length = math.dist(start, goal)
     if length == 0.0:
@@ -86,6 +92,8 @@ def plan_path(start, goal, boxes=(), clearance_m: float = 0.12, polygon=None,
             if polygon is not None and not all(_inside(*v, polygon) for v in vias):
                 continue
             corners = [start, *vias, goal]
+            if floor is not None and not _near_floor(_dense(corners, step_m), floor, floor_m):
+                continue
             if all(_gap(ox, oy, a, b)[0] >= s / 2 + clearance_m for ox, oy, s in boxes
                    for a, b in zip(corners, corners[1:], strict=False)):
                 return _dense(corners, step_m)

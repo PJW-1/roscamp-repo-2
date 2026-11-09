@@ -14,6 +14,7 @@ import itertools
 import math
 import random
 from dataclasses import dataclass, field
+from functools import partial
 
 from fleet_core.common.commands import (
     HELD,
@@ -38,6 +39,9 @@ NAV_ABORT_AFTER_S = 0.5
 NAV_TIMEOUT_AFTER_S = 2.0
 BLOCK_REPORT_S = 1.0  # 물체 앞에서 이만큼 서 있으면 BLOCKED(핑키 계약 4절: 2초 안)
 BLOCK_CLEAR_S = 1.0  # 물체가 이만큼 안 보이면 BLOCKED를 끄고 이어 간다
+# 갈 길(서 있으면 보는 방향)에서 이만큼 앞까지 몸이 상자에 닿을 곳이 있으면 선다(1-C)
+BOX_LOOK_M = 0.12
+OUTSIDE_HELD_M = 0.13  # 쥔 구역 바닥에서 이보다 멀면 outside_held로 센다(judge와 같은 값)
 LINE_TOLERANCE_M = 1e-6
 
 DEFAULT_ROBOTS = {
@@ -126,6 +130,7 @@ class SimWorld:
     site: object = None  # 예전 테스트는 셀 배치를 쓴다
     boxes: tuple = ()  # (x, y, size_m)들. 관제는 모르고 planner만 비켜 간다(버전 2 F-1)
     planner: object = None  # plan_path(start, goal, boxes, polygon=...) 꼴. 없으면 직선으로 답한다
+    boxes_stop: bool = True  # 상자 앞에서 서고 BLOCKED(1-C). False면 그대로 들이받는다
 
     def __post_init__(self):
         self.t = 0.0
@@ -162,6 +167,7 @@ class SimWorld:
         self.box_gap_min = float("inf")  # 로봇 몸체와 상자 모서리 사이가 가장 가까웠던 거리
         self.cell_checks = 0  # 칸 모드에서 몸 아래 칸이 그 로봇 것인지 본 횟수(F-2)
         self.cells_shared_max = 0  # 한 자유 구역의 칸을 함께 쥔 로봇 수의 최댓값(F-2)
+        self.outside_held = 0  # 실제 자세가 쥔 구역에서 OUTSIDE_HELD_M보다 먼 로봇·단계 수(1-C)
 
     # ---- public helpers for tests -------------------------------------------------------
 
@@ -276,7 +282,7 @@ class SimWorld:
         취소된 뒤에도 물체가 있는 동안은 BLOCKED다. 창이 열릴 때 move가 없으면 다음 move에 걸린다.
         """
         for r in self.virtual.values():
-            if r.obstacle_until is not None and self.t < r.obstacle_until:
+            if (r.obstacle_until is not None and self.t < r.obstacle_until) or self._box_ahead(r):
                 r.clear_at = None
                 if r.goal_kind == "move" and r.stopped_at is None:
                     r.stopped_at = self.t
@@ -291,6 +297,31 @@ class SimWorld:
             if self.t - r.clear_at >= BLOCK_CLEAR_S:
                 r.blocked = False
                 r.stopped_at = r.clear_at = None
+
+    def _box_ahead(self, r) -> bool:
+        """상자(boxes)가 갈 길 BOX_LOOK_M 안에서 몸에 닿는다(버전 2 1-C). 핑키 FSM이 경로 앞
+        costmap 칸으로 서는 것 대신이다. 서 있으면 보는 방향으로 같은 거리를 본다."""
+        if not self.boxes_stop or not self.boxes or r.removed:
+            return False
+        if r.goal_kind == "move" and r.target is not None:
+            line = [(r.x, r.y), *r.via, r.target]
+        else:
+            line = [(r.x, r.y), (r.x + math.cos(r.heading) * BOX_LOOK_M,
+                                 r.y + math.sin(r.heading) * BOX_LOOK_M)]
+        left = BOX_LOOK_M
+        for (ax, ay), (bx, by) in zip(line, line[1:], strict=False):
+            span = math.hypot(bx - ax, by - ay)
+            steps = max(1, math.ceil(min(span, left) / 0.01))
+            for k in range(steps + 1):
+                f = min(span, left) * k / steps / span if span else 0.0
+                x, y = ax + (bx - ax) * f, ay + (by - ay) * f
+                if any(math.dist((x, y), (cx, cy)) < size * math.sqrt(2) / 2
+                       + self.params.robot_radius_m + 0.005 for cx, cy, size in self.boxes):
+                    return True
+            left -= span
+            if left <= 0:
+                break
+        return False
 
     # ---- central stand-in ----------------------------------------------------------------
 
@@ -501,9 +532,15 @@ class SimWorld:
     def _plan(self, cmd):
         """로봇의 compute_path_to_pose 대신. 답은 다음 단계에 온다(액션 결과처럼)."""
         start, goal = (cmd.start_x, cmd.start_y), (cmd.goal_x, cmd.goal_y)
-        polygon = list(self.site.free_areas[cmd.area].polygon)
-        points = (self.planner(start, goal, self.boxes, polygon=polygon) if self.planner
-                  else [start, goal])
+        if not self.planner:
+            points = [start, goal]
+        elif cmd.area:
+            polygon = list(self.site.free_areas[cmd.area].polygon)
+            points = self.planner(start, goal, self.boxes, polygon=polygon)
+        else:  # 레인 비켜 가기(1-C): 레인 곁 바닥으로만
+            floor = [((ln.ax, ln.ay), (ln.bx, ln.by)) for key, ln in self.site.lanes.items()
+                     if key not in getattr(self.site, "free_lanes", ())]
+            points = self.planner(start, goal, self.boxes, floor=floor)
         self._queued_results.append((cmd.robot, self.core.on_plan_result,
                                      (cmd.robot, cmd.plan_id, points)))
 
@@ -552,11 +589,16 @@ class SimWorld:
                 break
             via.pop(0)
         corners = [(r.x, r.y), *via, (cmd.x, cmd.y)]
+        goal = traffic._missions[cmd.robot].goal
+        if goal is not None and goal.id == cmd.goal_id and goal.kind == "detour":
+            ok = partial(self._on_held_floor, cmd.robot)  # 비켜 가는 길은 쥔 구역 바닥 안(1-C)
+        else:
+            ok = self._path_point_ok
         for (ax, ay), (bx, by) in zip(corners, corners[1:], strict=False):
             for step in range(5):
                 x = ax + (bx - ax) * step / 4
                 y = ay + (by - ay) * step / 4
-                assert self._path_point_ok(x, y), f"{cmd} from ({r.x}, {r.y}) leaves the lanes"
+                assert ok(x, y), f"{cmd} from ({r.x}, {r.y}) leaves the lanes"
         self._preempt(r)
         r.docked_at = ""
         r.goal_id = cmd.goal_id
@@ -564,6 +606,11 @@ class SimWorld:
         r.target = (cmd.x, cmd.y)
         r.via = via
         r.goal_elapsed = 0.0
+
+    def _on_held_floor(self, robot, x, y) -> bool:
+        """쥔 구역 하나에 닿는다(제어기의 _off_the_floor가 놓지 않을 거리 안)."""
+        return any(self.site._touch_gap(x, y, zone) < self.params.release_distance_m
+                   for zone in self.core.zones.held_by(robot))
 
     def _path_point_ok(self, x, y) -> bool:
         """레인 위, 자유 구역 바닥, 또는 둥글린 모서리(버전 2 4절) 곁. 둥글린 원호는 꺾인
@@ -774,12 +821,18 @@ class SimWorld:
                 assert zone not in owners, f"{zone} has two holders: {owners[zone]} and {name}"
                 assert zones.holder(zone) == name
                 owners[zone] = name
-            borrowed = self.core.traffic._missions[name].borrowed
+            mission = self.core.traffic._missions[name]
+            borrowed = mission.borrowed | mission.lent  # 빌렸고 아직 놓지 않은 구역(1-C)
             # 칸 잠금 단위(버전 2 F-2)는 그 자유 구역 하나로 센다
             counted = {self.site.unit_area(zone) or zone for zone in held}
             # 자유 구역은 출구 다음 구역과 함께 쥔다(버전 2 F-1)
             limit = 3 if counted & set(self.site.free_areas) else 2
             assert len(counted - borrowed) <= limit, f"{name} holds {held}"
+        for r in self.virtual.values():
+            held = owners and [z for z, who in owners.items() if who == r.name]
+            if held and not r.removed and self.t >= r.localizing_until and min(
+                    self.site.distance_to_zone(r.x, r.y, z) for z in held) > OUTSIDE_HELD_M:
+                self.outside_held += 1
         inside = {}
         cells_on = self.params.free_cells and bool(self.site.free_areas)
         for area in self.site.free_areas if cells_on else ():

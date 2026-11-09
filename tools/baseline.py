@@ -94,11 +94,15 @@ DEFAULT_PLAN = {
     "two_lane_segments": ["basic_orders", "blocked_lane", "reinstate"],
     "feature_map_free": ["free_area_basic", "free_area_box"],
     "feature_map_crossing": ["free_area_crossing"],
+    "two_lane_avenue_wide": ["box_on_avenue"],
 }
 MODES = ("path", "point")
 # Scenarios the point mode cannot run: the fake robot drives a point goal in a straight line and
 # does not plan around boxes the way Nav2 would, so it would drive into the box
-PATH_ONLY = {"free_area_box"}
+PATH_ONLY = {"free_area_box", "box_on_avenue"}
+# Scenarios that measure a proposal the shipped fleet_params.yaml keeps off: box_on_avenue
+# measures 1-C borrowing (off in the shipped file until the ROS wiring lands)
+SCENARIO_PARAMS = {"box_on_avenue": {"borrow_enabled": True}}
 SEEDS = (1, 2, 3, 4, 5)
 WORLD_FAULTS = ("blocked",)
 OPERATOR_FAULTS = ("operator_remove", "operator_reinstate")
@@ -260,7 +264,7 @@ def _faults(data) -> tuple[list, list]:
     return world, operator
 
 
-def build_world(data, map_name_, seed, mode) -> SimWorld:
+def build_world(data, map_name_, seed, mode, changes=None) -> SimWorld:
     world_faults, _ = _faults(data)
     site = load_map(map_name_)
     parsed = parse_scenario(data, site)  # the fakes' checks and defaults
@@ -276,7 +280,7 @@ def build_world(data, map_name_, seed, mode) -> SimWorld:
     return SimWorld(seed=seed, orders=[dict(o) for o in data["orders"]], stock=stock,
                     robots={n: dict(spec) for n, spec in data["robots"].items()},
                     faults=world_faults, site=site,
-                    params=replace(load_params(), lane_goal_mode=mode),
+                    params=replace(load_params(), lane_goal_mode=mode, **(changes or {})),
                     arm_s_per_item=parsed.arm.seconds_per_item,
                     swap_step_s=parsed.arm.swap_seconds / 2,  # take, then put
                     dock_s=parsed.dock.duration_s,
@@ -300,7 +304,8 @@ def run_with_world(map_, scenario, seed, mode, timeout_s=None) -> tuple[dict, Si
     row = _blank_row(map_name(map_), scenario_name(scenario), mode, seed, data["robots"],
                      len(data["orders"]))
     try:
-        world = build_world(data, map_, seed, mode)
+        world = build_world(data, map_, seed, mode,
+                            SCENARIO_PARAMS.get(scenario_name(scenario)))
     except (ValueError, KeyError) as error:
         row["error"] = f"cannot build: {error!r}"
         return row, None

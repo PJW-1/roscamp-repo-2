@@ -311,6 +311,21 @@ def test_a_blocked_lane_run_measures_time_lost_to_the_object():
     assert result["object_hits"] == 1 and result["object_still_s"] >= 15.0
 
 
+@pytest.mark.parametrize("seed", [1, 3, 5])
+def test_a_blocked_lane_run_on_the_segment_map_finishes_with_the_shipped_params(seed):
+    # 1-C borrowing switched on in the shipped file left these seeds isolated after a deadlock
+    # (docs/worklog_2026-11-09_v2-1c.md), so the shipped file keeps it off for now
+    result = baseline.run_one("two_lane_segments", "blocked_lane", seed=seed, mode="path")
+    assert result["finished"] and result["error"] == ""
+
+
+def test_the_box_on_avenue_row_measures_borrowing_although_the_shipped_file_keeps_it_off():
+    result, world = baseline.run_with_world("two_lane_avenue_wide", "box_on_avenue", seed=1,
+                                            mode="path")
+    assert result["finished"] and result["error"] == ""
+    assert "ZONE_BORROWED" in world.event_codes()
+
+
 def test_detours_are_counted_from_the_core_events(tmp_path):
     # the settings of test_detour.feature_world: pinky1 meets an object at 42 s for 15 s
     data = baseline.load_scenario("feature_blocked_lane")
@@ -431,6 +446,7 @@ def test_a_robot_on_the_straight_line_drives_into_the_box():
     data = baseline.load_scenario("free_area_box")
     world = baseline.build_world(data, "feature_map_free", 1, "path")
     world.planner = lambda *args, **kwargs: None  # no path: the fleet falls back to the chord
+    world.boxes_stop = False  # nothing stops it at the box (1-C added the stop)
     with pytest.raises(AssertionError, match="box"):
         world.run(300)
 
@@ -499,3 +515,19 @@ def test_the_crossing_map_has_no_lane_conflict_pairs():
     lanes_only = [pair for pair in site.conflict_pairs(2 * 0.08, 0.2)
                   if not pair & set(site.free_areas)]
     assert lanes_only == []
+
+
+# ---- borrowing the neighbour lane (version 2 1-C) -------------------------------------------
+
+
+def test_box_on_avenue_borrows_round_the_box_in_path_mode_only():
+    """box_on_avenue: 동쪽행 차선 상자를 서쪽행 차선을 빌려 비켜 간다. 막힘 표시와 오류 없이 끝나고,
+    로봇은 늘 쥔 구역 바닥 곁에 있다(outside_held 0). point 모드는 돌리지 않는다."""
+    assert "box_on_avenue" in baseline.DEFAULT_PLAN["two_lane_avenue_wide"]
+    assert "box_on_avenue" in baseline.PATH_ONLY
+    row, world = baseline.run_with_world("two_lane_avenue_wide", "box_on_avenue", 1, "path")
+    assert row["finished"], row["error"]
+    seen = world.event_codes()
+    assert {"DETOUR_PLANNED", "ZONE_BORROWED", "DETOUR_DONE", "ZONE_RETURNED"} <= set(seen)
+    assert "LANE_BLOCKED" not in seen
+    assert world.outside_held == 0

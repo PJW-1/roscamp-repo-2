@@ -106,6 +106,17 @@ class FleetParams:
     eta_swap_s: float = 8.0
     # Use the ETA's station time left instead of station_wait_estimate_s in the detour cost
     detour_eta_wait: bool = False
+    # Proposal (version 2 1-C, local response S2-S4): a robot BLOCKED for obstacle_wait_s with its
+    # move goal open asks its planner for a way round to the end of the blocked lane and borrows
+    # every zone that path touches at once, only when all are free and nobody waits. The borrow
+    # is retried every tick for borrow_wait_s, then withdrawn (the old LANE_BLOCKED handling).
+    # Records without borrow_enabled replay without it
+    borrow_enabled: bool = False
+    obstacle_wait_s: float = 3.0
+    borrow_wait_s: float = 10.0
+    detour_max_ratio: float = 2.0
+    detour_sample_m: float = 0.05
+    detour_rejoin_tries: int = 2
 
 
 def load_params(path=None) -> FleetParams:
