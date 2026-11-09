@@ -472,9 +472,15 @@ def _number(value):
     return float(value)
 
 
+# taken over every run: a run stopped by an isolation or a broken invariant never finishes,
+# and its safety events must not read as 0
+EVERY_RUN = {"finished", "deadlocks", "unresolved", "isolations", "violations"}
+
+
 def summarize(rows) -> list[dict]:
-    """Mean, min and max per map, scenario and mode. `finished` is taken over every run, the
-    other metrics over finished runs only: a run cut by the timeout keeps adding waits."""
+    """Mean, min and max per map, scenario and mode. `finished` and the safety events
+    (EVERY_RUN) are taken over every run, the other metrics over finished runs only: a run cut
+    by the timeout keeps adding waits."""
     groups: dict[tuple, list] = {}
     for row in rows:
         groups.setdefault((row["map"], row["scenario"], row["mode"]), []).append(row)
@@ -483,7 +489,7 @@ def summarize(rows) -> list[dict]:
     for (map_, scenario, mode), group in groups.items():
         finished = [r for r in group if _number(r["finished"])]
         for metric in metrics:
-            source = group if metric == "finished" else finished
+            source = group if metric in EVERY_RUN else finished
             values = [v for v in (_number(r.get(metric)) for r in source) if v is not None]
             out.append({"map": map_, "scenario": scenario, "mode": mode, "metric": metric,
                         "runs": len(group), "n": len(values),

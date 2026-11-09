@@ -279,6 +279,20 @@ def test_the_summary_gives_mean_min_max_over_finished_seeds_and_skips_empty_cell
     assert summary["finished"]["mean"] == pytest.approx(2 / 3)
 
 
+def test_the_summary_counts_safety_events_over_every_run_including_the_stopped_one():
+    """A run stopped by an isolation or a broken invariant never finishes. Its deadlocks,
+    isolation and violation must still show in the summary, not read as 0 (whole-branch
+    review of v2-parity)."""
+    rows = [row(1, 100.0, deadlocks=0, unresolved=0, isolations=0, violations=0),
+            row(2, "", finished=False, deadlocks=3, unresolved=1, isolations=1, violations=1)]
+    summary = {(s["metric"]): s for s in baseline.summarize(rows)}
+    for metric, worst in (("deadlocks", 3), ("unresolved", 1), ("isolations", 1),
+                          ("violations", 1)):
+        cell = summary[metric]
+        assert (cell["n"], cell["max"], cell["mean"]) == (2, worst, worst / 2), metric
+    assert summary["finish_s"]["n"] == 1, "times stay over finished runs"
+
+
 def test_the_summary_keeps_map_scenario_and_mode_apart():
     rows = [row(1, 100.0), row(1, 200.0, mode="point")]
     groups = {(s["mode"], s["metric"]): s["mean"] for s in baseline.summarize(rows)}
