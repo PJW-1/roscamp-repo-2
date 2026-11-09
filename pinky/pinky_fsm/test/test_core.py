@@ -1123,3 +1123,34 @@ def test_the_limit_never_rounds_above_what_can_stop(back_m):
     fsm.move("g1", 1.0, "P-5", (*P5, 0.2), [P3, P4, P5], (*P3, NORTH), final_goal=False)
     [v] = limits(fsm.tick(1.2, near_p5(back_m), DRIVING, no_obstacle))
     assert v <= math.sqrt(2 * 0.25 * fsm.distance_remaining(near_p5(back_m))) + 1e-12
+
+
+# ---- pass-through controller: every FollowPath goal says whether its end is final -----------
+
+
+def test_every_path_of_a_final_goal_is_marked_final():
+    fsm = ready()
+    [send] = sends(move(fsm, "g1", 1.0))
+    assert send.final_goal is True
+
+
+def test_every_path_of_a_goal_at_a_lock_boundary_is_marked_not_final():
+    """The node picks the pass-through controller from this mark, also for the periodic
+    resends near the end (R13)."""
+    fsm = ready()
+    [send] = sends(fsm.move("g1", 1.0, "P-5", (*P5, 0.2), [P3, P4, P5], (*P3, NORTH),
+                            final_goal=False))
+    assert send.final_goal is False
+    resent = sends(fsm.tick(1.6, near_p5(0.10), DRIVING, no_obstacle))
+    assert resent and all(s.final_goal is False for s in resent)
+    [last] = sends(fsm.move("g2", 1.7, "P-5", (*P5, 0.2), [P3, P4, P5], near_p5(0.10)))
+    assert last.final_goal is True, "the next goal that ends the route is final again"
+
+
+def test_the_resend_after_a_self_recovery_keeps_the_mark():
+    fsm = ready()
+    fsm.move("g1", 0.0, "P-5", (*P5, 0.2), [P3, P4, P5], (*P3, NORTH), final_goal=False)
+    [b] = backups(stand(fsm, 1.0, STUCK))
+    fsm.heartbeat(3.5)
+    [again] = sends(fsm.backup_result(b.seq, "succeeded", 3.5, BEHIND))
+    assert again.final_goal is False

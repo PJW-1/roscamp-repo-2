@@ -100,6 +100,9 @@ class SendPath:
     """Nav2 FollowPath에 이 경로를 보낸다. 달리는 목표는 취소하지 않는다(안내 2.1)."""
     seq: int
     poses: list[Pose] = field(compare=False)
+    # 거짓이면 끝이 임무 끝이 아니라 잠금 경계다(MoveTo.final_goal). 노드는 그때 접근 감속
+    # 없는 controller(through_controller_id)를 쓸 수 있다
+    final_goal: bool = True
 
 
 @dataclass(frozen=True)
@@ -571,7 +574,7 @@ class PinkyFsm:
         self._nav_running = True
         self._nav_live.add(g.seq)
         poses = poses_along(g.route.rest(g.s), g.target[2], self.p.path_step_m)
-        return [SendPath(g.seq, poses)]
+        return [SendPath(g.seq, poses, final_goal=g.final_goal)]
 
     def _end_active(self, reason: str, stop: bool) -> list:
         g = self._active
