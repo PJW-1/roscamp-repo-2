@@ -69,6 +69,10 @@ ros2 launch fleet_gz_sim gz.launch.py scenario:=gz_roam sim_dock_stub:=true obst
 # 창고(포트폴리오): 6 x 4 m 창고, 랙, 작업대 위 팔 3대, 21분 동안 30 s마다 주문, 레인 장애물
 ros2 launch fleet_gz_sim gz.launch.py scenario:=gz_warehouse sim_dock_stub:=true obstacles:=warehouse
 
+# 연속 운행: 주문이 늘 밀려 있어 로봇이 일을 끝내자마자 다음 주문을 받는다(lane_arena 18건, 창고 15건)
+ros2 launch fleet_gz_sim gz.launch.py scenario:=gz_nonstop sim_dock_stub:=true
+ros2 launch fleet_gz_sim gz.launch.py scenario:=gz_warehouse_nonstop sim_dock_stub:=true
+
 # 화면 없이(느린 컴퓨터, 원격)
 ros2 launch fleet_gz_sim gz.launch.py scenario:=gz_roam sim_dock_stub:=true gui:=false rviz:=none
 ```
