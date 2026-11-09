@@ -33,7 +33,7 @@
 
 - 926d2f4 합친 뒤(fbd8e38): pinky_fsm 171 passed, pinky_nav_config 17 passed, fleet_gz_sim 366 passed.
 - 같은 빌드의 fleet_core: 2 failed, 1303 passed. 실패 둘은 트랙 C의 `sim/fake_robots/maps/real_arena.yaml`이다
-  (`test_shipped_maps`: `shortest_exit_lane()` 0.174 m > release 0.2 m 실패, `test_release_floor` 같은 지도).
+  (`test_shipped_maps`: `shortest_exit_lane()`가 0.174 m로 기본 release 0.2 m보다 짧아 실패, `test_release_floor` 같은 지도).
   이 트랙이 건드리지 않은 파일이라 고치지 않았다.
 - Codex 고침 뒤: fleet_gz_sim 366 passed(먼저 바꾼 시험이 2 failed로 빨갛게 나온 것을 봤다).
 - 행동을 바꾼 단계마다 시험을 먼저 써서 빨간 것을 봤다: pinky_nav_config 6 failed(빌드 전 nav2 launch 4건 포함),
@@ -49,6 +49,10 @@
    controller에 제한이 가는지는 이 시험으로 보이지 않는다. 맞다. 코드로 고칠 것이 아니라 Gazebo에서 볼 일이다(남은 일).
 - 그 밖에 R13 재전송, 자가 복구 재전송, 마지막 목표로 바꿀 때의 controller, 두 RPP 차이, 속도 상한, 인자 검사에서는
   문제를 찾지 못했다고 했다.
+
+재검수(fbd8e38..7e2b1c2): 이름 해석은 맞다고 했고 두 가지를 짚었다. (1) [확정] 작업 기록의 부등호가 틀렸다 →
+고쳤다. (2) `configs\custom.yaml` 같은 Windows 경로를 이름으로 본다 → launch는 WSL/Linux에서만 돌고 거기서
+`\`는 폴더 구분자가 아니므로 고치지 않았다.
 
 ## 남은 일
 
