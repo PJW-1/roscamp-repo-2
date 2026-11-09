@@ -1,0 +1,4 @@
+map,scenario,mode,seed,finished,error,orders_total,orders_shipped,finish_s,end_s,wait_total_s,object_still_s,object_hits,interventions,operator_refused,error_entries,stops,detours,deadlocks,isolations,line_idle_s,min_gap_m,path_m,placement_outside,pre_admits,replans,sidesteps,slowdowns,tick_ms_max,tick_ms_mean,tick_ms_p99,unresolved,violations,wait_pinky1_s,wait_pinky2_s,wait_pinky3_s
+lane_map,long_orders_100,freefloor,1,True,,100,100,2281.3,2300.3,483.9,,,0,0,0,143,0,16,0,69.5,0.3536,721.94,0,0,11,0,26,95.794,1.531,5.458,0,0,191.4,102.2,190.3
+lane_map,long_orders_100,freefloor,2,True,,100,100,2306.3,2325.3,506.6,,,0,0,0,149,0,13,0,103.4,0.3001,725.658,0,0,15,1,22,129.414,1.784,6.312,0,0,180.9,132.4,193.3
+lane_map,long_orders_100,freefloor,3,True,,100,100,2285.6,2304.6,471.5,,,0,0,0,143,0,11,0,87.9,0.3662,724.807,0,0,10,0,18,147.326,1.572,5.502,0,0,180.2,112.2,179.1

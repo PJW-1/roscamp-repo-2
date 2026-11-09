@@ -1,0 +1,9 @@
+map,scenario,mode,seed,finished,error,orders_total,orders_shipped,finish_s,end_s,wait_total_s,object_still_s,object_hits,interventions,operator_refused,error_entries,stops,detours,deadlocks,isolations,line_idle_s,min_gap_m,path_m,placement_outside,pre_admits,replans,sidesteps,slowdowns,tick_ms_max,tick_ms_mean,tick_ms_p99,unresolved,violations,wait_pinky1_s,wait_pinky2_s,wait_pinky3_s
+warehouse,warehouse_rush,freefloor,1,True,,36,36,1305.3,1323.4,273.9,,,0,0,0,97,0,27,0,999.4,0.2896,603.446,0,0,36,1,57,89.643,2.422,9.4,0,0,82.0,100.3,91.6
+warehouse,warehouse_rush,freefloor,2,False,invariant at 0.1 s: pinky2 unplaced on cells others hold at 0.1: {'c30_32'},36,0,,0.1,0.0,,,0,0,0,0,0,0,0,0.0,,0.0,0,0,0,0,0,0.092,0.092,0.092,0,1,0.0,0.0,0.0
+warehouse,warehouse_rush,freefloor,3,True,,36,36,1311.7,1338.6,345.5,,,0,0,1,89,0,36,0,1062.9,0.2864,620.091,0,0,58,0,83,111.423,2.97,11.925,1,0,107.1,114.9,123.5
+warehouse,warehouse_rush,freefloor,4,True,,36,36,1297.4,1316.6,318.9,,,0,0,0,89,0,38,0,1012.5,0.2907,614.658,0,0,50,0,70,125.808,2.635,10.266,0,0,117.0,92.9,109.0
+warehouse,warehouse_rush,freefloor,5,True,,36,36,1312.2,1330.3,329.9,,,0,0,1,91,0,37,0,1011.2,0.2869,616.129,0,0,41,1,75,147.979,2.288,9.141,1,0,86.0,96.1,147.8
+warehouse,warehouse_rush,freefloor,6,True,,36,36,1358.3,1381.2,276.9,,,0,0,1,76,0,32,0,1090.5,0.2879,643.148,0,0,41,0,60,117.924,2.139,8.405,0,0,90.5,100.0,86.4
+warehouse,warehouse_rush,freefloor,7,True,,36,36,1282.0,1310.4,245.3,,,0,0,0,72,0,24,0,912.9,0.2859,598.613,0,0,26,0,49,131.654,2.043,7.921,0,0,77.5,92.1,75.7
+warehouse,warehouse_rush,freefloor,8,True,,36,36,1311.9,1341.9,300.3,,,0,0,1,82,0,24,0,1053.6,0.2883,608.945,0,0,46,4,61,157.983,2.121,8.956,0,0,84.2,89.6,126.5

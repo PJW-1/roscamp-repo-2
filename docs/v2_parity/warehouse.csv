@@ -1,0 +1,16 @@
+map,scenario,mode,seed,finished,error,orders_total,orders_shipped,finish_s,end_s,wait_total_s,object_still_s,object_hits,interventions,operator_refused,error_entries,stops,detours,min_gap_m,path_m,tick_ms_mean,tick_ms_max,tick_ms_p99,deadlocks,unresolved,isolations,violations,wait_pinky1_s,wait_pinky2_s,wait_pinky3_s
+warehouse,warehouse_rush,path,1,True,,36,36,1303.0,1330.6,350.9,,,0,0,0,56,0,0.35,611.141,0.183,21.336,0.392,0,0,0,0,114.3,9.5,227.1
+warehouse,warehouse_rush,path,2,True,,36,36,1300.6,1328.2,334.0,,,0,0,0,55,0,0.35,610.967,0.199,17.999,0.421,0,0,0,0,107.8,6.7,219.5
+warehouse,warehouse_rush,path,3,True,,36,36,1300.7,1328.3,338.7,,,0,0,0,55,0,0.35,611.025,0.195,20.711,0.436,0,0,0,0,106.7,7.0,225.0
+warehouse,warehouse_rush,path,4,True,,36,36,1300.6,1328.2,334.7,,,0,0,0,55,0,0.35,610.909,0.178,17.335,0.375,0,0,0,0,107.0,6.9,220.8
+warehouse,warehouse_rush,path,5,True,,36,36,1301.1,1328.7,339.9,,,0,0,0,55,0,0.35,610.967,0.178,17.262,0.386,0,0,0,0,107.5,7.0,225.4
+warehouse,warehouse_rush,path,6,True,,36,36,1300.7,1328.3,341.0,,,0,0,0,55,0,0.35,611.084,0.174,18.126,0.362,0,0,0,0,106.7,7.0,227.3
+warehouse,warehouse_rush,path,7,True,,36,36,1300.7,1328.3,338.5,,,0,0,0,56,0,0.35,610.85,0.179,17.357,0.379,0,0,0,0,108.1,7.1,223.3
+warehouse,warehouse_rush,path,8,True,,36,36,1302.6,1330.2,349.1,,,0,0,0,56,0,0.35,610.85,0.165,17.192,0.364,0,0,0,0,113.4,9.0,226.7
+warehouse,warehouse_rush,path,9,True,,36,36,1300.6,1328.2,337.7,,,0,0,0,55,0,0.35,611.025,0.187,16.812,0.392,0,0,0,0,107.6,7.2,222.9
+warehouse,warehouse_rush,path,10,True,,36,36,1300.9,1328.5,340.6,,,0,0,0,56,0,0.35,610.967,0.201,16.875,0.426,0,0,0,0,107.7,7.4,225.5
+warehouse,warehouse_rush,path,11,True,,36,36,1303.0,1330.6,347.8,,,0,0,0,56,0,0.35,610.85,0.202,20.388,0.426,0,0,0,0,114.7,9.4,223.7
+warehouse,warehouse_rush,path,12,True,,36,36,1303.1,1330.7,348.9,,,0,0,0,56,0,0.35,610.967,0.18,17.753,0.396,0,0,0,0,114.8,9.3,224.8
+warehouse,warehouse_rush,path,13,True,,36,36,1300.9,1328.5,342.0,,,0,0,0,56,0,0.35,610.85,0.185,17.909,0.39,0,0,0,0,107.2,7.6,227.2
+warehouse,warehouse_rush,path,14,True,,36,36,1302.9,1330.5,349.3,,,0,0,0,56,0,0.35,611.025,0.182,17.139,0.394,0,0,0,0,114.2,9.2,225.9
+warehouse,warehouse_rush,path,15,True,,36,36,1302.8,1330.4,348.3,,,0,0,0,57,0,0.35,611.141,0.175,17.505,0.373,0,0,0,0,116.0,9.4,222.9
