@@ -628,6 +628,10 @@ def test_a_bare_fleet_params_name_is_a_fleet_core_data_file(made, nav_tmp):
     from fleet_core.common.params import DEFAULT_PARAMS
     assert fleet_params_files(run(made, fleet_params_file="fleet_params")) == {
         str(DEFAULT_PARAMS)}
+    # a file name with .yaml but no folder is a data file too, not a file in the launch folder
+    # (Codex review of fbd8e38)
+    assert fleet_params_files(run(made, fleet_params_file="fleet_params_real_arena.yaml")) == {
+        str(DEFAULT_PARAMS.parent / "fleet_params_real_arena.yaml")}
     mine = nav_tmp / "mine.yaml"
     mine.write_bytes(DEFAULT_PARAMS.read_bytes())
     assert fleet_params_files(run(made, fleet_params_file=str(mine))) == {str(mine)}, \
@@ -656,5 +660,6 @@ def test_the_real_arena_command_line_resolves_every_argument(made, nav_tmp):
 
 
 def test_an_unknown_fleet_params_name_stops_the_launch(made, nav_tmp):
-    with pytest.raises(ValueError, match="fleet_params_file"):
-        run(made, fleet_params_file="no_such_params")
+    for name in ("no_such_params", "no_such_params.yaml"):
+        with pytest.raises(ValueError, match="fleet_params_file"):
+            run(made, fleet_params_file=name)

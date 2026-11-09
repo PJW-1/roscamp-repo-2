@@ -82,12 +82,13 @@ def flag(text: str, name: str) -> bool:
 
 
 def params_file_of(value: str) -> str:
-    """fleet_params_file: "" stays "", a path stays as given, a bare name is
-    fleet_core/data/<name>.yaml."""
+    """fleet_params_file: "" stays "", a path (with a folder) stays as given, a bare name with or
+    without .yaml is fleet_core/data/<name>.yaml."""
     from fleet_core.common.params import DEFAULT_PARAMS
-    if not value or "/" in value or value.endswith(".yaml"):
+    if not value or "/" in value:
         return value
-    path = DEFAULT_PARAMS.parent / f"{value}.yaml"
+    name = value if value.endswith(".yaml") else f"{value}.yaml"
+    path = DEFAULT_PARAMS.parent / name
     if not path.is_file():
         raise ValueError(f"fleet_params_file {value!r}: no {path}")
     return str(path)
