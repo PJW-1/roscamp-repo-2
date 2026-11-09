@@ -127,6 +127,34 @@ def test_a_scenario_map_without_a_site_runs_in_the_lane_arena_with_that_lane_map
     assert arena.lane_map == str(FAKE / "maps" / "feature_map_crossing.yaml")
 
 
+def test_a_site_names_the_lane_map_its_world_was_built_from(tmp_path):
+    """sites/<map>.yaml의 lane_map으로 월드의 레인 그림과 상자 여유를 만들었으므로 관제도 그 레인
+    지도를 쓴다(지도 이름과 달라도)."""
+    from fleet_gz_sim.fleet_setup import arena_for
+    gz = tmp_path / "gz"
+    for rel in ("sites/foo.yaml", "worlds/foo.sdf", "maps/foo.yaml", "maps/foo_fine.yaml"):
+        (gz / rel).parent.mkdir(parents=True, exist_ok=True)
+        (gz / rel).write_text("lane_map: two_lane_segments\n" if rel.startswith("sites") else "")
+    mine = tmp_path / "mine.yaml"
+    mine.write_text("map: foo\n")
+    arena = arena_for(mine, gz, FAKE)
+    assert arena.world == str(gz / "worlds" / "foo.sdf")
+    assert arena.lane_map == str(FAKE / "maps" / "two_lane_segments.yaml")
+
+
+def test_a_scenario_file_finds_its_map_in_the_maps_folder_beside_its_own_first(tmp_path):
+    """버전 2 scenario_map_file처럼, 파일로 준 시나리오는 자기 옆 maps 폴더의 지도를 먼저 쓴다."""
+    from fleet_gz_sim.fleet_setup import arena_for
+    (tmp_path / "scenarios").mkdir()
+    (tmp_path / "maps").mkdir()
+    mine = tmp_path / "scenarios" / "mine.yaml"
+    mine.write_text("map: two_lane_segments\n")
+    own = tmp_path / "maps" / "two_lane_segments.yaml"
+    own.write_bytes((FAKE / "maps" / "two_lane_segments.yaml").read_bytes())
+    arena = arena_for(mine, PKG, FAKE)
+    assert arena.name == "lane_arena" and arena.lane_map == str(own)
+
+
 def test_a_scenario_map_without_a_gazebo_world_is_refused(tmp_path):
     from fleet_gz_sim.fleet_setup import arena_for
     mine = tmp_path / "mine.yaml"
@@ -171,6 +199,27 @@ def test_the_warehouse_scenario_has_stock_for_every_order():
     stock = {item: count for items in scenario.stock.values() for item, count in items.items()}
     for order in scenario.orders:
         assert set(order.items) <= set(stock), order.id
+    for item in stock:
+        assert sum(order.items.get(item, 0) for order in scenario.orders) <= stock[item], item
+
+
+NONSTOP = Path(__file__).resolve().parent.parent / "scenarios" / "gz_nonstop.yaml"
+WAREHOUSE_NONSTOP = NONSTOP.with_name("gz_warehouse_nonstop.yaml")
+
+
+@pytest.mark.parametrize("path", [NONSTOP, WAREHOUSE_NONSTOP], ids=lambda p: p.stem)
+def test_the_nonstop_scenario_keeps_a_backlog_so_each_pinky_gets_its_next_goal_on_arrival(path):
+    """gz_nonstop: orders come faster than three pinkys finish them (6 orders took 253 s on
+    Gazebo, about 40 s each), so a pinky that finishes an order already has the next one.
+    gz_warehouse_nonstop is the same on the warehouse map, where the trips are longer."""
+    from fleet_gz_sim.fleet_setup import arena_for
+    _, scenario = load(path, arena_for(path, PKG, FAKE).lane_map)
+    assert list(scenario.robots) == ["pinky1", "pinky2", "pinky3"]
+    times = [order.at_s for order in scenario.orders]
+    assert len(times) >= 15 and times == sorted(times)
+    assert max(b - a for a, b in pairwise(times)) <= 15
+    assert scenario.timeout_s >= 40 * len(times) + 300  # time for the backlog to drain
+    stock = {item: count for items in scenario.stock.values() for item, count in items.items()}
     for item in stock:
         assert sum(order.items.get(item, 0) for order in scenario.orders) <= stock[item], item
 
