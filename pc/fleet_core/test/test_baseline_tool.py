@@ -641,6 +641,14 @@ def test_the_long_run_builds_on_the_default_map():
     assert len(world.orders) == 100 and world.params.lane_goal_mode == "path"
 
 
+def test_the_real_arena_row_runs_slow_noisy_robots_with_the_arena_params():
+    result, world = baseline.run_with_world("real_arena", "gz_real_arena", 1, "path", speed=0.12,
+                                            noise=0.03, params="fleet_params_real_arena")
+    assert result["finished"], result["error"]
+    assert result["orders_shipped"] == 8 and world.params.release_distance_m == 0.17
+    assert {(r.speed, r.noise) for r in world.virtual.values()} == {(0.12, 0.03)}
+
+
 def test_the_table_keeps_three_decimals_for_millisecond_ticks_and_gaps():
     rows = [row(1, 100.0, tick_ms_mean=0.123, min_gap_m=0.3068),
             row(2, 100.0, tick_ms_mean=0.141, min_gap_m=0.35)]
