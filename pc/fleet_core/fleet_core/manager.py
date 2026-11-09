@@ -36,6 +36,7 @@ from fleet_core.common.validate import (
     run_mode_problem,
     text,
 )
+from fleet_core.eta import EtaEstimator
 from fleet_core.orders.orchestrator import FILL, FILLING, SWAP, SWAPPING, OrderOrchestrator
 from fleet_core.orders.validate import orders_problem, reinstate_problem
 from fleet_core.traffic.controller import TrafficController
@@ -79,6 +80,8 @@ class FleetManager:
                                              self._next_goal_id)
         self._work = next(s.id for s in site.stations.values() if s.action == FILL)
         self._outbound = next(s.id for s in site.stations.values() if s.action == SWAP)
+        self._eta = EtaEstimator(site, params, self.traffic, self.orchestrator, clock)
+        self.traffic.station_left = self._eta.station_left_s
         self._out: list = []
         self._bounds = site.bounds()
         self._board: list = []  # 검사를 통과한 마지막 주문 목록
@@ -266,6 +269,17 @@ class FleetManager:
 
     def zones_view(self) -> list[ZoneView]:
         return self.traffic.zones_view()
+
+    def eta(self, robot, waypoint=None):
+        """robot이 waypoint(기본은 지금 경로의 끝)에 닿기까지의 Eta(travel_s, wait_s). 공식판.
+
+        모르는 로봇이나 지도에 없는 로봇이면 None. 관측만 하고 아무것도 바꾸지 않는다.
+        """
+        return self._eta.eta(robot, waypoint)
+
+    def eta_station_left(self, robot):
+        """스테이션에서 일하는 로봇이 도크 구역을 놓기까지(초). 일하는 중이 아니면 None."""
+        return self._eta.station_left_s(robot)
 
     def assignments_view(self) -> list[AssignmentView]:
         views = []

@@ -94,6 +94,18 @@ class FleetParams:
     # most this radius, at most half_width inside the corner. 0 keeps the sharp corners;
     # records without it replay with sharp corners
     corner_radius_m: float = 0.0
+    # Proposal (version 2 section 2, formula ETA; traffic/eta.py). None are measured on a real
+    # robot. The dock and arm times match the fake scenarios' defaults (3 s, 4 s per item, 8 s)
+    eta_speed_mps: float = 0.2
+    eta_turn_s_per_rad: float = 1.0  # in-place turn time per radian; 0 leaves turns out
+    eta_turn_min_rad: float = 0.25  # smaller corners are driven through (RPP rotate threshold)
+    eta_dock_s: float = 3.0
+    eta_fill_s_per_item: float = 4.0
+    eta_fill_base_s: float = 0.0  # time a fill takes before the first item (set-up, final check)
+    eta_fill_items_default: int = 2  # items a robot not yet bound to an order is assumed to fill
+    eta_swap_s: float = 8.0
+    # Use the ETA's station time left instead of station_wait_estimate_s in the detour cost
+    detour_eta_wait: bool = False
 
 
 def load_params(path=None) -> FleetParams:

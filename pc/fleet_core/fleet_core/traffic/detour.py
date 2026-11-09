@@ -16,7 +16,8 @@
   - 재시도나 도착 확인을 기다린다: 남은 시간.
   - 달린다: 주행 단계(TO_*, DOCKING)인데 위 대기가 아니다. 목표 사이라 이 tick에 다음 목표를 받는다.
     막힘 표시 때 취소한 goal의 결과를 기다리는 로봇은 빼고 아래로 간다.
-  - 그 밖(스테이션, 대기 칸, 할 일 대기): station_wait_estimate_s.
+  - 그 밖(스테이션, 대기 칸, 할 일 대기): station_wait_estimate_s. detour_eta_wait가 참이고
+    스테이션에서 팔 작업 중이면 ETA의 작업 남은 시간(station_left).
 고르는 때: 현재 구역 말고 쥔 것이 없어 다음 구역을 청할 때. 다음 구역을 이미 쥐었으면 안 바꾼다.
 막힌 로봇과 취소 결과를 기다리는 로봇(_held_for_block)은 다시 고르지 않는다.
 다음 구역에 벌점이 있거나, 남은 경로에 막힌 레인이나 못 비키는(무한) 보유자의 구역이
@@ -43,6 +44,10 @@ from fleet_core.traffic.mission import (
 
 
 class TrafficDetour:
+    # (로봇) -> 스테이션 작업 남은 시간(초) 또는 None. FleetManager가 ETA에서 꽂는다. 쓰는 때는
+    # detour_eta_wait가 참일 때뿐이고, 없거나 None이면 station_wait_estimate_s를 쓴다(버전 2 2번)
+    station_left = None
+
     def _standing_wait_s(self, m: _Mission) -> float | None:
         """달리면 None, 서 있으면 예상 대기 시간(초). 못 비키면 inf."""
         queued = (m.robot_state == BLOCKED and m.goal is not None and m.queue_since is not None
@@ -65,6 +70,10 @@ class TrafficDetour:
             return later - now
         if m.phase in (TO_WORK, TO_OUTBOUND, TO_PARK, DOCKING) and not self._held_for_block(m):
             return None  # 목표 사이다. 이 tick에 다음 목표를 받는다
+        if self.params.detour_eta_wait and self.station_left is not None:
+            left = self.station_left(m.name)
+            if left is not None:
+                return left
         return self.params.station_wait_estimate_s
 
     def _zone_penalty(self, m: _Mission, zone: str, cache: dict) -> tuple[float, str]:
