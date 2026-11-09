@@ -101,7 +101,10 @@ pgrep -af "gz sim|ruby|component_container|pinky_fsm_node|fleet_manager_node"   
 | `fleet_check` | `true` | 주행 지표를 `result_dir/fleet_check.json`에(아래 "결과 확인") |
 | `monitor` | `true` | 시나리오 판정. 시나리오가 끝나면 `summary.json`을 쓰고 launch를 끝낸다 |
 | `result_dir` | `gz_result` | 결과 폴더(launch를 띄운 폴더 기준) |
-| `fleet_params_file` | 설치된 `fleet_params.yaml` | 관제 파라미터 |
+| `fleet_params_file` | 설치된 `fleet_params.yaml` | 관제 파라미터. 경로가 아닌 이름이면 `fleet_core/data/<이름>.yaml`(예: `fleet_params_real_arena`), 없는 이름이면 launch가 멈춘다 |
+| `nav_pass_through` | `true` | 잠금 경계에서 끝나는 이동(`final_goal` 거짓)을 접근 감속 없는 둘째 RPP `FollowPathThrough`로 보낸다(경계 앞 감속은 `pinky_fsm` 속도 제한만 맡는다). `false`면 모두 `FollowPath`(두 RPP는 그대로 뜬다, 비교용) |
+| `nav_max_speed` | 없음(0.25) | 두 RPP의 `desired_linear_vel`과 `pinky_fsm`의 `horizon_cap_mps`를 함께 이 값(m/s)으로. 로봇 설정 속도보다 크거나 `pinky_fsm` 후진 속도(0.08)·감속 바닥(0.05)보다 작으면 launch가 멈춘다 |
+| `nav_collision_check` | `true` | `false`면 두 RPP의 충돌 검사를 끈다(틈 옆 여유가 몇 cm인 `real_arena`) |
 | `heartbeat_timeout_s` | `1.5` | `pinky_fsm`의 heartbeat 끊김 판정 |
 | `nav_log_level` | `warn` | Nav2 로그 수준 |
 | `nav_composition` | `true` | 로봇마다 Nav2 노드 9개를 프로세스 하나로. `false`면 DDS 참여자가 LOCALHOST 한도(약 32)를 넘어 pinky3이 안 보인다 |
