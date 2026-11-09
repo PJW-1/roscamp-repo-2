@@ -563,7 +563,7 @@ class PinkyFsm:
             left = max(0.0, g.route.length - g.s)
             # 제한이 듣기 전에 이만큼은 제 속도로 간다
             left = max(0.0, left - self.p.horizon_cap_mps * self.p.horizon_latency_s)
-            v =max(self.p.horizon_min_mps, math.sqrt(2.0 * self.p.horizon_decel_mps2 * left))
+            v = max(self.p.horizon_min_mps, math.sqrt(2.0 * self.p.horizon_decel_mps2 * left))
             # 내려서 자른다. 올려 반올림하면 √(2·a·d)를 넘는다
             limit = math.floor(v * 100.0) / 100.0 if v < self.p.horizon_cap_mps else 0.0
         if limit == self._speed_limit:

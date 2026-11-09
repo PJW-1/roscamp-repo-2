@@ -366,7 +366,7 @@ class PinkyFsmNode(Node):
             # 바꿔 보내는 목표로 controller가 바뀐다(controller_server updateGlobalPath).
             # speed_limit은 띄운 controller 모두에 간다
             controller = self._through_id
-        goal =FollowPath.Goal(path=path, controller_id=controller, goal_checker_id=checker,
+        goal = FollowPath.Goal(path=path, controller_id=controller, goal_checker_id=checker,
                                progress_checker_id=progress)
         self._nav_pending.add(cmd.seq)
         self._nav.send_goal_async(goal).add_done_callback(partial(self._on_nav_response,
