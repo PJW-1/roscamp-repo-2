@@ -264,6 +264,9 @@ class TrafficBorrow:
         if not success:
             self._detour_failed(m, reason)
             return
+        if not self._at_target(m, goal.target_idx):  # 마지막 자세로 도착을 확인한다(검토 지적 1)
+            self._detour_failed(m, "succeeded away from the rejoin point")
+            return
         m.idx = max(m.idx, goal.target_idx)
         m.settle_idx = None  # 막힘 표시 때 취소한 goal의 목표는 이제 뜻이 없다
         m.attempts = 0
@@ -285,19 +288,22 @@ class TrafficBorrow:
         needed = self._needed_zones(m)
         least = 2 * self.params.robot_radius_m  # 그보다 가까운 바닥은 해제 규칙에 맡긴다
         for zone in sorted(m.lent - needed):
-            if (self.site._touch_gap(m.x, m.y, zone) >= least
+            if (self.site.distance_to_zone(m.x, m.y, zone) >= least  # 바닥까지(검토 지적 2)
                     and self.zones.release(m.name, zone)):
                 m.outside.pop(zone, None)
 
     def _detour_failed(self, m: _Mission, reason: str) -> None:
         """우회가 끝나지 못했다. 로봇은 길 밖일 수 있어 빌린 구역까지 쥔 채 격리한다.
 
-        보낸 자리에서 lane_error_warn_m 안이면 아직 제 레인 위다. 이동 실패 한 번으로 세고,
+        보낸 자리에서 lane_error_warn_m 안이고 빌리기 전부터 쥔 구역의 바닥 위면 아직 제 레인
+        위다(검토 지적 3: 출발점 거리만으로는 바닥 밖일 수 있다). 이동 실패 한 번으로 세고,
         지금·다음 구역이 아닌 빌린 구역은 해제 규칙에 넘긴다(다시 막히면 막힘 처리).
         """
         m.goal = None
         start, m.detour_from = m.detour_from, None
-        if start is not None and math.dist((m.x, m.y), start) <= self.params.lane_error_warn_m:
+        own = m.borrowed - m.lent
+        if (start is not None and math.dist((m.x, m.y), start) <= self.params.lane_error_warn_m
+                and any(self.site.distance_to_zone(m.x, m.y, z) == 0.0 for z in own)):
             m.borrowed = set()
             self._event("WARN", "DETOUR_FAILED", f"{reason}, never left the lane", m.name)
             self._return_shadowed(m)

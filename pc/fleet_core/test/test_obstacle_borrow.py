@@ -272,6 +272,37 @@ def test_a_detour_that_never_left_the_lane_goes_back_to_the_block_rules():
     assert d.m().borrowed == set()
 
 
+def test_a_detour_failure_just_off_the_lane_still_isolates():
+    """출발점에서 lane_error_warn_m 안이어도 제 레인 바닥 밖이면 길 밖이다(검토 지적 3)."""
+    d = Avenue()
+    plan = d.plan(d.blocked())
+    d.core.on_plan_result("r1", plan.plan_id, AROUND)
+    d.tick(1)
+    goal = d.m().goal
+    d.pose = (1.70, 1.19)  # 출발점에서 0.11 m, 동쪽행 바닥에서 0.06 m 밖
+    d.report()
+    d.core.on_move_result("r1", goal.id, False, "NAV_ABORTED")
+    d.tick(3)
+    assert d.m().fault == "ERROR"
+    assert "AW" in d.core.zones.held_by("r1")
+
+
+def test_a_detour_success_away_from_the_rejoin_point_is_not_done():
+    """성공 결과가 와도 마지막 자세가 다시 붙을 지점이 아니면 끝난 것으로 치지 않는다(지적 1)."""
+    d = Avenue()
+    plan = d.plan(d.blocked())
+    d.core.on_plan_result("r1", plan.plan_id, AROUND)
+    d.tick(1)
+    goal = d.m().goal
+    d.pose = (1.79, 1.11)
+    d.report()
+    d.core.on_move_result("r1", goal.id, True, "")
+    out = d.tick(3)
+    assert "DETOUR_DONE" not in codes(out)
+    assert d.m().fault == "ERROR"
+    assert "AW" in d.core.zones.held_by("r1")
+
+
 def test_without_borrowing_the_robot_is_marked_blocked_as_before():
     d = Avenue(borrow_enabled=False)
     out = d.blocked()
