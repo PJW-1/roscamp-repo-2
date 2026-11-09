@@ -588,9 +588,11 @@ def test_a_run_fills_the_free_floor_columns():
 
 def test_deadlock_and_isolation_columns_count_their_own_events():
     codes = ["DEADLOCK_DETECTED", "DETOUR", "DEADLOCK_DETECTED", "DEADLOCK_UNRESOLVED",
-             "ROBOT_ISOLATED", "DEADLOCK_RETREAT", "DETOUR"]
+             "ROBOT_ISOLATED", "DEADLOCK_RETREAT", "DETOUR", "DETOUR", "DEADLOCK_UNRESOLVED",
+             "DEADLOCK_DETECTED", "DEADLOCK_DETECTED"]
     events = [SimpleNamespace(code=c) for c in codes]
-    assert baseline.event_counts(events) == {"detours": 2, "deadlocks": 2, "unresolved": 1,
+    # every count differs, so a swapped mapping fails
+    assert baseline.event_counts(events) == {"detours": 3, "deadlocks": 4, "unresolved": 2,
                                              "isolations": 1}
 
 
