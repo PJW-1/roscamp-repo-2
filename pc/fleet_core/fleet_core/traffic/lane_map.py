@@ -167,6 +167,9 @@ class LaneMap:
         self.zone_of = {waypoint: name for name, members in self.zones.items()
                         for waypoint in members}
         self._segments = {zone: self._zone_segments(zone) for zone in self.zones}
+        self._cell_cache: dict = {}  # 자유 구역 -> free_cells (F-2)
+        self._units: dict | None = None  # 칸 잠금 단위 -> 자유 구역 (cell_units)
+        self._approach_lanes: dict = {}  # 진입 레인 단위 -> 레인들
         self._temp: set = set()  # add_temp_zone으로 더한 구역
         for waypoint in self._pose:
             if waypoint not in self._out and waypoint not in self._in:
@@ -307,8 +310,105 @@ class LaneMap:
         """꺾은선에서 clearance 안에 드는 칸 이름들(경계 포함, 반올림은 더 잡는 쪽)."""
         segments = list(zip(points, points[1:], strict=False)) or [(points[0], points[0])]
         reach = clearance + 1e-9
-        return frozenset(name for name, box in self.free_cells(area).items()
+        return frozenset(name for name, box in self._cells_of(area).items()
                          if min(_box_segment(box, a, b) for a, b in segments) <= reach)
+
+    def _cells_of(self, area: str) -> dict:
+        if area not in self._cell_cache:
+            self._cell_cache[area] = self.free_cells(area)
+        return self._cell_cache[area]
+
+    # ---- cell locks (버전 2 F-2) ----------------------------------------------------------------
+
+    def cell_units(self) -> dict:
+        """칸 잠금 단위 -> 자유 구역. 칸(구역/ix,iy)과 출입구마다 진입 레인(구역/>출입구).
+
+        진입 레인은 바깥 지점에서 출입구로 들어오는 레인들이다. 구역 모드에서는 자유 구역
+        바닥이었고(레인은 끝 지점의 단위) 칸이 덮지 않으므로 따로 잠근다.
+        """
+        if self._units is None:
+            self._units, self._approach_lanes = {}, {}
+            for area in self.free_areas.values():
+                for name in self._cells_of(area.name):
+                    self._units[name] = area.name
+                for gate in area.gates:
+                    lanes = [lane for lane in self._in.get(gate, ())
+                             if self.zone_of[lane.a] != area.name]
+                    if lanes:
+                        name = f"{area.name}/>{self.waypoint_id(gate)}"
+                        self._units[name] = area.name
+                        self._approach_lanes[name] = lanes
+        return dict(self._units)
+
+    def unit_area(self, unit) -> str | None:
+        """칸 잠금 단위의 자유 구역. 보통 구역이면 None."""
+        return self.cell_units().get(unit) if isinstance(unit, str) else None
+
+    def approach_unit(self, area: str, gate) -> str | None:
+        name = f"{area}/>{self.waypoint_id(gate)}"
+        return name if name in self.cell_units() else None
+
+    def _unit_distance(self, x: float, y: float, unit: str) -> float:
+        self.cell_units()
+        if unit in self._approach_lanes:  # 구역 바닥처럼 lane_entry 뒤부터 half_width까지
+            nearest = math.inf
+            for lane in self._approach_lanes[unit]:
+                skip = min(self.lane_entry, lane.span)
+                nearest = min(nearest, _point_segment(
+                    x, y, lane.ax + lane.ux * skip, lane.ay + lane.uy * skip, lane.bx, lane.by))
+            return max(0.0, nearest - self.half_width)
+        box = self._cells_of(self._units[unit])[unit]
+        return math.hypot(max(box[0] - x, 0.0, x - box[2]), max(box[1] - y, 0.0, y - box[3]))
+
+    def cell_conflict_pairs(self, clearance_m: float, release_m: float) -> set[frozenset]:
+        """칸 잠금 단위가 들어간 충돌 쌍. conflict_pairs와 같은 규칙이다.
+
+        - 칸과 바깥 구역 레인: 2r보다 가까우면. 출입구에서 나가는 레인은 앞 release_m을 뺀다.
+        - 진입 레인과 바깥 구역 레인, 진입 레인끼리: 레인끼리의 규칙(_too_close).
+        - 진입 레인과 칸: 레인이 칸에 2r보다 가까우면(출입구 칸과는 늘).
+        - 다른 자유 구역의 칸끼리: 2r보다 가까우면.
+        칸끼리는 쌍이 아니다. 떨어뜨리는 것은 경로에서 칸을 고르는 여유(controller)다.
+        """
+        units = self.cell_units()
+        pairs: set[frozenset] = set()
+        outside = [lane for lane in self.lanes.values() if (lane.a, lane.b) not in self.free_lanes]
+        approaches = list(self._approach_lanes.items())
+        for name, area_name in units.items():
+            if name in self._approach_lanes:
+                continue
+            area, box = self.free_areas[area_name], self._cells_of(area_name)[name]
+            for lane in outside:
+                zone = self.zone_of[lane.b]
+                if zone == area_name:
+                    continue  # 진입 레인은 아래에서 단위끼리 본다
+                skip = release_m if lane.a in area.gates else 0.0
+                if skip < lane.span and _box_segment(
+                        box, (lane.ax + lane.ux * skip, lane.ay + lane.uy * skip),
+                        (lane.bx, lane.by)) < clearance_m:
+                    pairs.add(frozenset({name, zone}))
+            for unit, lanes in approaches:
+                if any(_box_segment(box, (lane.ax, lane.ay), (lane.bx, lane.by)) < clearance_m
+                       for lane in lanes):
+                    pairs.add(frozenset({name, unit}))
+        for i, (unit, lanes) in enumerate(approaches):
+            for lane in outside:
+                zone = self.zone_of[lane.b]
+                if zone != units[unit] and any(
+                        self._too_close(mine, lane, clearance_m, release_m) for mine in lanes):
+                    pairs.add(frozenset({unit, zone}))
+            for other, other_lanes in approaches[i + 1:]:
+                if any(self._too_close(a, b, clearance_m, release_m)
+                       for a in lanes for b in other_lanes):
+                    pairs.add(frozenset({unit, other}))
+        areas = list(self.free_areas)
+        for i, one in enumerate(areas):
+            for other in areas[i + 1:]:
+                for a, box_a in self._cells_of(one).items():
+                    for b, box_b in self._cells_of(other).items():
+                        if min(_box_segment(box_a, p, q) for p, q in _box_edges(box_b)) \
+                                < clearance_m:
+                            pairs.add(frozenset({a, b}))
+        return pairs
 
     def _station(self, name: str, raw: dict) -> Station:
         dock = self._known(_waypoint_id(raw["dock"]), f"station {name}")
@@ -398,7 +498,12 @@ class LaneMap:
         return lane.b
 
     def distance_to_zone(self, x: float, y: float, zone: str) -> float:
-        """자세에서 구역 바닥까지 거리. 안에 있으면 0. 자유 구역은 다각형 바닥도 바닥이다."""
+        """자세에서 구역 바닥까지 거리. 안에 있으면 0. 자유 구역은 다각형 바닥도 바닥이다.
+
+        칸 잠금 단위(F-2)면 칸 정사각형이나 진입 레인 바닥까지 거리.
+        """
+        if zone not in self._segments and self.unit_area(zone) is not None:
+            return self._unit_distance(x, y, zone)
         nearest = min(_point_segment(x, y, *segment) for segment in self._segments[zone])
         distance = max(0.0, nearest - self.half_width)
         if zone in self.free_areas:
@@ -478,6 +583,27 @@ class LaneMap:
                    or any(_segment_distance(a[:2], a[2:], p, q) < clearance_m
                           for p, q in _polygon_edges(polygon)) for a in mine):
                 found.add(area.name)
+        return found
+
+    def zones_touched(self, points, sample_m: float, release_m: float) -> set[str]:
+        """경로가 닿는 구역(버전 2 1-C): 제어기의 _off_the_floor가 아직 놓지 않을 거리 안의 구역.
+
+        구역과 진입 레인은 바닥 거리 + half_width, 칸은 상자 거리 그대로 release_m과 비교한다.
+        칸 잠금 단위(cell_units)도 함께 낸다. 경로를 sample_m 이하 간격 점으로 나누고, 점 사이를
+        지나는 부분을 놓치지 않도록 점 간격의 반만큼 더 넓게 본다(더 잡는 쪽)."""
+        points = [tuple(float(v) for v in p) for p in points]
+        samples, gap = points[:1], 0.0
+        for (ax, ay), (bx, by) in zip(points, points[1:], strict=False):
+            steps = max(1, math.ceil(math.hypot(bx - ax, by - ay) / sample_m))
+            gap = max(gap, math.hypot(bx - ax, by - ay) / steps)
+            samples += [(ax + (bx - ax) * k / steps, ay + (by - ay) * k / steps)
+                        for k in range(1, steps + 1)]
+        reach = release_m + gap / 2
+        found = set()
+        for zone in [*self.zones, *self.cell_units()]:
+            pad = 0.0 if self.unit_area(zone) is not None and ">" not in zone else self.half_width
+            if any(self.distance_to_zone(x, y, zone) + pad < reach for x, y in samples):
+                found.add(zone)
         return found
 
     # ---- conflict pairs -----------------------------------------------------------------------

@@ -1,0 +1,69 @@
+# 광장을 두 줄로 건너는 지도 (버전 2 F-2, 2026-11-09). 자유 구역 칸 잠금(free_cells) 개발용.
+# feature_map_free의 광장(0.35 m 높이)은 칸 하나 높이라, 경로 여유(release_distance_m 0.2)를 두면
+# 어느 두 경로도 같은 칸을 쓰게 되어 "두 대가 동시에 건너기"를 보일 수 없다. 그래서 광장을
+# 1.05 x 0.65(칸 3 x 2)으로 넓히고, 출고 뒤 대기 줄로 가는 길(동쪽, GNE->GSE)과 대기 줄에서
+# WORK로 가는 길(서쪽, GSW->GNW)이 둘 다 광장을 지나게 했다. 두 선은 칸 열 하나씩만 쓴다
+# (x = 1.95는 칸 열 2, x = 1.10은 칸 열 0, 가운데 열과 0.25 m). 원래 지도들은 그대로다.
+# 좌표는 Gazebo lane_arena 벽(0.00~3.70 x 0.25~2.40)과 상자에서 0.23 m 이상 떨어진다.
+# 구역을 떠나는 레인(출입구로 들어가는 것 빼고)은 0.36 m 이상이다: 로봇이 끝 지점 앞 도착 허용치
+# (0.15 m) 안에 서도 release_distance_m(0.2)를 지나 앞 구역을 놓는다(첫 Gazebo 실행에서 O->F0
+# 0.25 m라 F0에 선 로봇이 O를 못 놓고 멈췄다).
+#
+#        W ---> E0 ---> E1 ---> E2 ---> O                 E: 동쪽행
+#        ^                              |
+#        +---- F2 <--- F1 <--- F0 <-----+                 F: 서쪽행
+#   QW                         |
+#    ^--- GNW [  PLAZA      ] GNE
+#          ^                   v
+#         GSW [             ] GSE
+#          ^                   v
+#         P-3 <--- P-2 <--- P-1                           대기 줄
+half_width_m: 0.05    # 추정: 레인에서 이 거리까지는 레인 위로 친다
+lane_entry_m: 0.25    # 레인 바닥이 시작되는 거리
+origin_m: [0.0, 0.0]
+bundle_two_way: true  # 양방향 쌍은 잠금 하나(이 지도에는 없다)
+waypoints:
+  - {id: W, x: 0.70, y: 1.95}      # WORK 도크
+  - {id: QW, x: 0.60, y: 1.55}     # WORK 앞 대기 지점
+  - {id: E0, x: 1.05, y: 2.10}     # 동쪽행 레인
+  - {id: E1, x: 1.41, y: 2.10}
+  - {id: E2, x: 1.77, y: 2.10}
+  - {id: O, x: 2.35, y: 2.05}      # OUTBOUND 도크
+  - {id: F0, x: 2.10, y: 1.75}     # 서쪽행 레인. 갈림: 계속 서쪽, 또는 광장으로
+  - {id: F1, x: 1.35, y: 1.75}
+  - {id: F2, x: 0.99, y: 1.73}
+  - {id: GNE, x: 1.95, y: 1.50}    # 광장 출입구: 북동, 남동, 남서, 북서
+  - {id: GSE, x: 1.95, y: 0.85}
+  - {id: GSW, x: 1.10, y: 0.85}
+  - {id: GNW, x: 1.10, y: 1.50}
+  - {id: P-1, x: 1.95, y: 0.48}    # 대기 칸, 주행 순서대로
+  - {id: P-2, x: 1.50, y: 0.48}
+  - {id: P-3, x: 1.10, y: 0.48}
+lanes:
+  - {from: W, to: E0}
+  - {from: E0, to: E1}
+  - {from: E1, to: E2}
+  - {from: E2, to: O}
+  - {from: O, to: F0}
+  - {from: F0, to: F1}
+  - {from: F1, to: F2}
+  - {from: F2, to: W}
+  # ---- 출고 뒤 광장 동쪽을 지나 대기 줄로 ----
+  - {from: F0, to: GNE}
+  - {from: GSE, to: P-1}
+  - {from: P-1, to: P-2}
+  - {from: P-2, to: P-3}
+  # ---- 대기 줄에서 광장 서쪽을 지나 WORK로 ----
+  - {from: P-3, to: GSW}
+  - {from: GNW, to: QW}
+  - {from: QW, to: W}
+stations:
+  WORK: {dock: W, queue: [[QW, W]], commit: W, server: workcell, arms: [arm1, arm2], action: fill}
+  OUTBOUND: {dock: O, queue: [[E2, O]], commit: O, server: arm3, arms: [arm3], action: swap}
+# 주행 순서대로. 대기 로봇은 가장 깊은 빈 곳으로 가므로 먼저 온 로봇이 먼저 나간다.
+parking: [P-1, P-2, P-3]
+free_areas:
+  PLAZA:
+    polygon: [[1.00, 0.85], [2.05, 0.85], [2.05, 1.50], [1.00, 1.50]]
+    gates: [GNE, GSE, GSW, GNW]
+    cell_m: 0.35  # 제안

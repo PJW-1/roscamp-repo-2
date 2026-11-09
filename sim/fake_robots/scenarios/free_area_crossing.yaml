@@ -1,0 +1,37 @@
+# 자유 구역 여러 대(버전 2 F-2): free_area_basic의 주문(두 시각만 늦춤), 광장을 두 줄로 건너는 지도.
+# 출고 뒤 대기 줄로 가는 로봇(광장 동쪽 GNE->GSE)과 대기 줄에서 WORK로 가는 로봇(서쪽 GSW->GNW)이
+# 칸 열이 달라 광장을 동시에 지난다(free_cells, 칸 잠금). free_cells를 끄면 한 번에 한 대다.
+# 주문 O-005, O-006은 free_area_basic(40 s, 60 s)보다 늦게(100 s, 130 s) 둔다. 그래야 대기 줄에
+# 선 로봇이 불려 WORK로 갈 때 출고를 마친 로봇이 대기 줄로 돌아오며 광장에서 만난다.
+map: feature_map_crossing
+seed: 7
+speed_factor: 5.0
+timeout_s: 900
+stock: {arm1: {A: 6, B: 6}, arm2: {C: 6, D: 6}}
+orders:
+  - {at_s: 0, id: O-001, items: {A: 1, C: 1}}
+  - {at_s: 0, id: O-002, items: {B: 1, D: 1}}
+  - {at_s: 10, id: O-003, items: {A: 2}}
+  - {at_s: 20, id: O-004, items: {C: 1, D: 1, A: 1}}
+  - {at_s: 100, id: O-005, items: {B: 2, C: 2}}
+  - {at_s: 130, id: O-006, items: {D: 1}}
+robots:
+  pinky1: {start: P-3, speed_mps: 0.20, pose_noise_m: 0.03}
+  pinky2: {start: P-2, speed_mps: 0.18, pose_noise_m: 0.03}
+  pinky3: {start: P-1, speed_mps: 0.20, pose_noise_m: 0.03}
+arm: {seconds_per_item: 4.0, swap_seconds: 8.0, fail_rate: 0.0}
+dock: {duration_s: 3.0, error_cm: 1.0}
+faults: []
+expect:
+  all_orders_finished: true
+  orders_shipped: 6
+  orders_partial: 0
+  orders_held: 0
+  fifo_violations: 0
+  dual_arm_overlaps: 0
+  zone_holder_max: 2  # 판정은 지점 구역 단위로 센다. 칸 모드에서는 두 대가 광장(PLAZA)에 함께 든다
+  released_without_position_check: 0
+  unheld_zone_pose: 0
+  events_include: [ORDER_BOUND, ORDER_SHIPPED, DOCKED, FREE_CELLS]
+  event_counts: {ORDER_BOUND: 6, COMM_LOST: 0, GOAL_RETRY: 0, ROBOT_NOT_REPORTING: 0}
+  order_results: {O-001: SHIPPED, O-002: SHIPPED, O-003: SHIPPED, O-004: SHIPPED, O-005: SHIPPED, O-006: SHIPPED}

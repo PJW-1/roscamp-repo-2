@@ -450,3 +450,52 @@ def test_the_free_floor_of_the_world_is_the_polygon_itself():
                                  "path")
     assert world._on_free_floor(1.5, 0.7)
     assert not world._on_free_floor(1.5, 0.47), "가장자리에서 0.03 m 밖, 출입구에서 멀다"
+
+
+# ---- free areas, several robots (version 2 F-2) ---------------------------------------------
+
+
+def test_two_robots_cross_the_plaza_at_once_on_the_crossing_map():
+    """free_area_crossing: 출고 뒤 광장 동쪽과 대기 줄에서 WORK로 가는 서쪽이 칸 열이 달라
+    두 대가 동시에 광장 칸을 쥔다. 몸 아래 칸은 늘 그 로봇 것이다(SimWorld 불변식)."""
+    assert "free_area_crossing" in baseline.DEFAULT_PLAN["feature_map_crossing"]
+    for seed in (1, 2):
+        row, world = baseline.run_with_world("feature_map_crossing", "free_area_crossing", seed,
+                                             "path")
+        assert row["finished"], (seed, row["error"])
+        assert world.cells_shared_max >= 2, seed
+        assert world.cell_checks > 0
+        assert "FREE_CELLS" in world.event_codes()
+
+
+def test_the_crossing_map_leaves_room_to_stop_short_on_every_exit_lane():
+    """Gazebo에서 로봇은 지점 앞 도착 허용치(arrival 0.15 m) 안에 선다. 구역을 떠나는 레인이
+    release_distance_m + 0.15보다 짧으면 끝 지점에 선 로봇이 앞 구역을 못 놓고 다음 구역도
+    청하지 않아 멈춘다(첫 Gazebo 실행에서 O->F0 0.25 m로 생김). 출입구로 들어가는 레인은
+    뺀다: 이 지도를 쓰는 칸 모드에서는 광장 경로와 칸을 먼저 쥐어 목표가 출입구에서 끝나지
+    않는다(F-1 모드는 광장 경로를 기다리는 동안 출입구에서 설 수 있다)."""
+    from pathlib import Path
+
+    from fleet_core.traffic.lane_map import load_lane_map
+    maps = Path(__file__).resolve().parents[3] / "sim" / "fake_robots" / "maps"
+    site = load_lane_map(str(maps / "feature_map_crossing.yaml"))
+    gates = {g for area in site.free_areas.values() for g in area.gates}
+    short = [(a, b, round(lane.span, 3)) for (a, b), lane in site.lanes.items()
+             if site.zone_of[a] != site.zone_of[b] and b not in gates
+             and lane.span < 0.2 + 0.15 + 0.005]  # 해제는 s > 0.2(엄격)라 5 mm 더
+    assert short == []
+
+
+def test_the_crossing_map_has_no_lane_conflict_pairs():
+    """2차 Gazebo 실행: O로 들어오는 E2->O와 O에서 나가는 O->F0가 예각이라 (F0, O)가 충돌 쌍이었다.
+    O에서 떠나려는 로봇의 F0 요청이 O를 먼저 기다린 E2의 로봇 뒤에 서서 둘이 교착했다
+    (DEADLOCK_UNRESOLVED, 격리). 이 지도에는 레인끼리의 충돌 쌍을 두지 않는다(자유 구역 단위가
+    든 쌍은 칸 모드에서 칸 쌍으로 바뀐다)."""
+    from pathlib import Path
+
+    from fleet_core.traffic.lane_map import load_lane_map
+    maps = Path(__file__).resolve().parents[3] / "sim" / "fake_robots" / "maps"
+    site = load_lane_map(str(maps / "feature_map_crossing.yaml"))
+    lanes_only = [pair for pair in site.conflict_pairs(2 * 0.08, 0.2)
+                  if not pair & set(site.free_areas)]
+    assert lanes_only == []

@@ -76,6 +76,10 @@ class FleetParams:
     # planned path may be. Maps without free areas never use them
     free_plan_wait_s: float = 2.0
     free_path_max_ratio: float = 2.0
+    # Proposal (version 2 F-2): lock a free area by cells (cell_m) and gate approaches, taking
+    # every cell within release_distance_m of the planned path at once. Off keeps one robot at
+    # a time (F-1); records without it replay that way
+    free_cells: bool = False
     # Proposal (version 2 1-A, contract 0.7-draft Retreat): a robot that must give way in a
     # deadlock but is inside every zone it holds backs up its lane after locking the zone
     # behind. Records without real_retreat replay without it (the old DEADLOCK_UNRESOLVED)

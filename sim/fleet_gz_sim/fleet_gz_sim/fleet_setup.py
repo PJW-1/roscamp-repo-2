@@ -3,14 +3,15 @@
 - 핑키를 놓는 자리: 시나리오의 시작 지점. 방향은 그 지점으로 들어오는 레인 방향
   (대기 줄을 따라 들어와 섰다).
 - 돌릴 수 없는 시나리오: 로봇 고장이 있는 것(가짜 핑키가 일으키는 고장이라 진짜 pinky_fsm에는
-  일으킬 곳이 없다). 경기장은 기본 레인 지도로 만들었으므로 지도도 기본 지도를 쓴다.
+  일으킬 곳이 없다). 지도는 시나리오의 `map:`(없으면 기본 지도)이다. 월드는 그대로 경기장이라
+  그 지도가 벽 안에 들어야 한다(feature_map_crossing은 벽에서 0.25 m 떨어져 있다).
 """
 from __future__ import annotations
 
 import math
 from pathlib import Path
 
-from fake_robots.scenario import ROBOT_FAULTS, load_scenario
+from fake_robots.scenario import ROBOT_FAULTS, load_scenario, scenario_map_file
 from fleet_core.traffic.lane_map import load_lane_map
 
 
@@ -48,9 +49,9 @@ def obstacles_path(value: str, share: str | Path) -> str:
 
 
 def load(path):
-    """(기본 레인 지도, 시나리오). 경기장에서 돌릴 수 없으면 ScenarioUnfit."""
+    """(시나리오의 레인 지도, 시나리오). `map:`이 없으면 기본 지도. 돌릴 수 없으면 ScenarioUnfit."""
     name = Path(path).name
-    site = load_lane_map(None)
+    site = load_lane_map(scenario_map_file(path) or None)
     scenario = load_scenario(path, site)
     faults = sorted({f.type for f in scenario.faults if f.type in ROBOT_FAULTS})
     if faults:

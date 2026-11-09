@@ -160,6 +160,8 @@ class SimWorld:
         self.min_true_release_distance = float("inf")
         self.path_refusals: list[tuple[float, str, int]] = []  # (시각, 로봇, goal_id)
         self.box_gap_min = float("inf")  # 로봇 몸체와 상자 모서리 사이가 가장 가까웠던 거리
+        self.cell_checks = 0  # 칸 모드에서 몸 아래 칸이 그 로봇 것인지 본 횟수(F-2)
+        self.cells_shared_max = 0  # 한 자유 구역의 칸을 함께 쥔 로봇 수의 최댓값(F-2)
 
     # ---- public helpers for tests -------------------------------------------------------
 
@@ -533,7 +535,9 @@ class SimWorld:
             return
         cell = next(c for c in self.site.zone_of if self.site.waypoint_id(c) == cmd.target_id)
         zone = self.site.zone_of[cell]
-        assert zone in self.core.zones.held_by(cmd.robot), f"{cmd} targets an ungranted zone"
+        traffic = self.core.traffic  # 칸 모드면 칸을 다 쥔 자유 구역도 쥔 구역이다(F-2)
+        assert zone in traffic._held_view(traffic._missions[cmd.robot]), \
+            f"{cmd} targets an ungranted zone"
         assert (cmd.x, cmd.y) == self.site.waypoint_pose(cell), f"{cmd} pose is not the cell centre"
         if self._refuses_path(r, cmd):
             return
@@ -734,6 +738,25 @@ class SimWorld:
     def _physical_zone(self, r):
         return self.site.zone_of[self.site.nearest_waypoint(r.x, r.y)]
 
+    def _check_cells(self, r, area, owners):
+        """칸 모드(버전 2 F-2): 실제 몸(robot_radius_m) 아래 칸은 모두 그 로봇 것이다. 바닥 밖
+        진입 레인 위면 그 진입 레인이나 그 자유 구역의 칸을 쥐고 있다(나가는 로봇은 출입구 칸)."""
+        if self.t < r.localizing_until:
+            return
+        units = self.site.cell_units()
+        under = [u for u, a in units.items() if a == area and ">" not in u
+                 and self.site.distance_to_zone(r.x, r.y, u) < self.params.robot_radius_m]
+        for unit in under:
+            self.cell_checks += 1
+            assert owners.get(unit) == r.name, (
+                f"{r.name} is over {unit} held by {owners.get(unit)} at {self.t}")
+        if not under:
+            gate = self.site.nearest_waypoint(r.x, r.y)
+            approach = self.site.approach_unit(area, gate)
+            mine = {u for u, who in owners.items() if who == r.name and units.get(u) == area}
+            assert approach in mine or any(">" not in u for u in mine), (
+                f"{r.name} is on the way into {area} at {gate} without its cells at {self.t}")
+
     def _check_invariants(self):
         for r in self.virtual.values():
             for bx, by, size in self.boxes:
@@ -752,14 +775,23 @@ class SimWorld:
                 assert zones.holder(zone) == name
                 owners[zone] = name
             borrowed = self.core.traffic._missions[name].borrowed
+            # 칸 잠금 단위(버전 2 F-2)는 그 자유 구역 하나로 센다
+            counted = {self.site.unit_area(zone) or zone for zone in held}
             # 자유 구역은 출구 다음 구역과 함께 쥔다(버전 2 F-1)
-            limit = 3 if set(held) & set(self.site.free_areas) else 2
-            assert len(set(held) - borrowed) <= limit, f"{name} holds {held}"
+            limit = 3 if counted & set(self.site.free_areas) else 2
+            assert len(counted - borrowed) <= limit, f"{name} holds {held}"
         inside = {}
+        cells_on = self.params.free_cells and bool(self.site.free_areas)
+        for area in self.site.free_areas if cells_on else ():
+            sharing = {who for unit, who in owners.items() if self.site.unit_area(unit) == area}
+            self.cells_shared_max = max(self.cells_shared_max, len(sharing))
         for r in self.virtual.values():
             if r.removed:
                 continue
             zone = self._physical_zone(r)
+            if cells_on and zone in self.site.free_areas:
+                self._check_cells(r, zone, owners)  # 칸 모드: 여러 대가 함께 든다(F-2)
+                continue
             assert zone not in inside, f"{r.name} and {inside[zone]} are both in {zone} at {self.t}"
             inside[zone] = r.name
             if self.t < r.localizing_until:

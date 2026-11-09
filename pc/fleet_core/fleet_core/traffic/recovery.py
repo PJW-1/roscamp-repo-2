@@ -132,10 +132,13 @@ class TrafficRecovery:
         zone = self._zone(waypoint)
         for held in self.zones.held_by(m.name):
             self._release_if_cleared(m, held)
-        if zone not in self.zones.held_by(m.name) and not self.zones.request(m.name, zone):
+        units = self._spot_units(m, zone)  # 칸 모드의 자유 구역이면 둘레 칸(F-2)
+        if (not set(units) <= set(self.zones.held_by(m.name))
+                and not self.zones.request_all(m.name, units)):
             self._fail(m, "RECOVERY_CONFLICT")  # 격리도 여기서 걸린다
+            holders = sorted({self.zones.holder(u) or "" for u in units} - {""}) or [None]
             self._event("ERROR", "RECOVERY_CONFLICT",
-                        f"{m.name} is in {zone} held by {self.zones.holder(zone)}", m.name)
+                        f"{m.name} is in {zone} held by {', '.join(map(str, holders))}", m.name)
             return
         m.path = [waypoint]
         m.idx = 0
@@ -268,6 +271,8 @@ class TrafficRecovery:
         held = self.zones.held_by(m.name)
         if spot in held or spot == self._zone(here):
             return False
+        if self._cells_on and spot in self.site.free_areas:
+            return False  # 칸 모드(F-2)의 자유 구역으로는 물러나지 않는다(어느 칸인지 모른다)
         bx, by = self.site.waypoint_pose(behind)
         hx, hy = self.site.waypoint_pose(here)
         lane_yaw = math.atan2(hy - by, hx - bx)

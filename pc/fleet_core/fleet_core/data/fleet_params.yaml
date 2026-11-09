@@ -56,6 +56,7 @@ dispatch_retry_wait_s: 2.0    # 제안: 출고 호출이 실패하면 이만큼 
 dispatch_retry_limit: 3       # 제안: 출고 호출 실패가 이 수를 넘으면 ERROR(DISPATCH_FAILED)
 free_plan_wait_s: 2.0         # 제안(버전 2 F-1): 자유 구역 경로 계산 답을 이만큼 기다리고, 없으면 출입구 사이 직선으로 간다
 free_path_max_ratio: 2.0      # 제안: 받은 자유 구역 경로가 출입구 사이 직선의 이 배수보다 길면 쓰지 않는다
+free_cells: true              # 제안(버전 2 F-2): 자유 구역을 칸(cell_m)과 진입 레인으로 잠가 여러 대가 함께 지난다. 끄면 한 번에 한 대(F-1)
 real_retreat: true            # 제안(버전 2 1-A): 교착에서 내놓을 구역이 없는 로봇은 뒤 구역을 잠그고 들어온 레인을 곧게 후진한다
 retreat_max_m: 0.4            # 제안: 한 번에 물러나는 최대 거리
 retreat_speed_mps: 0.08       # 제안: 후진 속도(자가 복구 후진과 같다)
