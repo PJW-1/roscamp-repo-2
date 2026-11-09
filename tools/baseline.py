@@ -79,8 +79,9 @@ names are looked up in sim/fake_robots/scenarios, then sim/fleet_gz_sim/scenario
 tools/scenarios (long_orders_100).
 The run goes on after the last order until every robot still on the floor is PARKED, so waits
 and stops cover the trip home. The summary (<out>_summary.csv and the table on stdout) gives
-mean, min and max over seeds; `finished` over all runs, every other metric over finished runs
-only (n says how many), because a run cut by the timeout keeps adding waits.
+mean, min and max over seeds; `finished` and the safety events (deadlocks, unresolved,
+isolations, violations) over all runs, every other metric over finished runs only (n says how
+many), because a run cut by the timeout keeps adding waits.
 """
 from __future__ import annotations
 
@@ -512,7 +513,7 @@ def write_summary(path, summary) -> None:
 
 TABLE_METRICS = ("finished", "finish_s", "wait_total_s", "object_still_s", "interventions",
                  "error_entries", "stops", "detours", "path_m", "min_gap_m", "tick_ms_mean",
-                 "tick_ms_p99", "deadlocks", "unresolved", "isolations")
+                 "tick_ms_p99", "deadlocks", "unresolved", "isolations", "violations")
 FINE_METRICS = ("min_gap_m", "tick_ms_mean", "tick_ms_p99")  # below 1, so three decimals
 
 

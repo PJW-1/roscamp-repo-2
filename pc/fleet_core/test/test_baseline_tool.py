@@ -680,6 +680,17 @@ def test_the_table_keeps_three_decimals_for_millisecond_ticks_and_gaps():
     assert "0.132 (0.123-0.141)" in line and "0.328 (0.307-0.350)" in line
 
 
+def test_the_table_shows_every_safety_event_column():
+    rows = [row(1, 100.0, deadlocks=0, unresolved=0, isolations=0, violations=0),
+            row(2, "", finished=False, deadlocks=0, unresolved=0, isolations=0, violations=1)]
+    header, _, line = baseline.table(baseline.summarize(rows)).splitlines()[:3]
+    names = [c.strip() for c in header.strip("|").split("|")]
+    for metric in ("deadlocks", "unresolved", "isolations", "violations"):
+        assert metric in names, metric
+    cells = [c.strip() for c in line.strip("|").split("|")]
+    assert cells[names.index("violations")].startswith("0.5"), "the stopped run shows"
+
+
 def test_the_command_line_passes_speed_noise_and_params(tmp_path, monkeypatch):
     seen = []
 
