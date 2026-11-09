@@ -635,6 +635,26 @@ def test_a_bare_fleet_params_name_is_a_fleet_core_data_file(made, nav_tmp):
     assert fleet_params_files(run(made)) == {""}, "empty: the installed fleet_params.yaml"
 
 
+def test_the_real_arena_command_line_resolves_every_argument(made, nav_tmp):
+    """The command in scenarios/gz_real_arena.yaml: its fleet params by data file name, a
+    slower speed for both RPPs and the FSM cap, and no RPP collision check."""
+    from fleet_core.common.params import DEFAULT_PARAMS
+    actions = run(made, scenario="gz_real_arena", sim_dock_stub="true",
+                  fleet_params_file="fleet_params_real_arena", nav_max_speed="0.12",
+                  nav_collision_check="false")
+    assert fleet_params_files(actions) == {
+        str(DEFAULT_PARAMS.parent / "fleet_params_real_arena.yaml")}
+    used = nav2_files(actions)
+    assert set(used) == {"pinky1", "pinky2"}
+    for ns, data in used.items():
+        for name in ("FollowPath", THROUGH):
+            rpp = data["controller_server"]["ros__parameters"][name]
+            assert rpp["desired_linear_vel"] == 0.12, (ns, name)
+            assert rpp["use_collision_detection"] is False, (ns, name)
+    assert {(a["horizon_cap_mps"], a["through_controller_id"])
+            for a in fsm_args(actions).values()} == {("0.12", THROUGH)}
+
+
 def test_an_unknown_fleet_params_name_stops_the_launch(made, nav_tmp):
     with pytest.raises(ValueError, match="fleet_params_file"):
         run(made, fleet_params_file="no_such_params")
