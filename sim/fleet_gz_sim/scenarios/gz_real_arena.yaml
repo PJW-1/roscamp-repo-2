@@ -8,7 +8,8 @@
 # 집에서 돌리기: 이 레포를 colcon build로 빌드하고(시뮬 월드와 지도도 함께 설치된다), 실물
 # 네트워크가 아닌 도메인에서(6은 launch가 막는다, 시뮬은 58) 이 컴퓨터 안에서만 돌린다.
 #   export ROS_DOMAIN_ID=58 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
-#   ros2 launch fleet_gz_sim gz.launch.py scenario:=gz_real_arena sim_dock_stub:=true #       fleet_params_file:=fleet_params_real_arena nav_max_speed:=0.12 nav_collision_check:=false
+#   ros2 launch fleet_gz_sim gz.launch.py scenario:=gz_real_arena sim_dock_stub:=true \
+#       fleet_params_file:=fleet_params_real_arena nav_max_speed:=0.12 nav_collision_check:=false
 map: real_arena
 seed: 61
 speed_factor: 5.0
