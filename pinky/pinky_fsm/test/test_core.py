@@ -1079,8 +1079,9 @@ def near_p5(back_m):
     return (P4[0] + (P5[0] - P4[0]) * k, P4[1] + (P5[1] - P4[1]) * k, 0.2)
 
 
-def can_stop(left, p=FsmParams()):
+def can_stop(left):
     """What can still stop within left (m) after the limit takes horizon_latency_s to act."""
+    p = FsmParams()
     margin = p.horizon_cap_mps * p.horizon_latency_s
     return math.sqrt(2 * p.horizon_decel_mps2 * max(0.0, left - margin))
 
