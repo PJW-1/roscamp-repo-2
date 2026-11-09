@@ -71,7 +71,7 @@ _FLOAT_PARAMS = (
     # 관제가 시키는 물러나기(버전 2 1-A)
     "retreat_stop_wait_s",
     # 잠금 경계 목표의 속도 제한(버전 2 4절 horizon 최소판)
-    "horizon_decel_mps2", "horizon_min_mps", "horizon_cap_mps")
+    "horizon_decel_mps2", "horizon_min_mps", "horizon_cap_mps", "horizon_latency_s")
 _INT_PARAMS = ("recovery_attempts",)
 
 

@@ -92,7 +92,12 @@ class FsmParams:
     # 크다(계약 0.8 주석, V2 교차 검수 3). 숫자는 추정이다(실측 a 전). 한계 이상이면 제한하지 않는다
     horizon_decel_mps2: float = 0.25
     horizon_min_mps: float = 0.05
-    horizon_cap_mps: float = 0.3
+    # RPP는 절대 제한을 desired_linear_vel로 그대로 쓴다(설정값과 비교하지 않는다). 그래서 Nav2의
+    # 0.25를 넘지 않는다. 더 느린 로봇은 launch의 horizon_cap_mps로 그 속도를 준다
+    horizon_cap_mps: float = 0.25
+    # 위치가 바뀐 뒤 제한이 controller에서 듣기까지(제어 tick, speed_limit 토픽, RPP 주기).
+    # 추정이다(실측 전). horizon_cap_mps로 이 시간 동안 가는 거리(0.075 m)를 d에서 뺀다
+    horizon_latency_s: float = 0.3
 
 
 @dataclass(frozen=True)
@@ -556,7 +561,9 @@ class PinkyFsm:
         limit = 0.0
         if isinstance(g, _Move) and not g.final_goal:
             left = max(0.0, g.route.length - g.s)
-            v = max(self.p.horizon_min_mps, math.sqrt(2.0 * self.p.horizon_decel_mps2 * left))
+            # 제한이 듣기 전에 이만큼은 제 속도로 간다
+            left = max(0.0, left - self.p.horizon_cap_mps * self.p.horizon_latency_s)
+            v =max(self.p.horizon_min_mps, math.sqrt(2.0 * self.p.horizon_decel_mps2 * left))
             # 내려서 자른다. 올려 반올림하면 √(2·a·d)를 넘는다
             limit = math.floor(v * 100.0) / 100.0 if v < self.p.horizon_cap_mps else 0.0
         if limit == self._speed_limit:
