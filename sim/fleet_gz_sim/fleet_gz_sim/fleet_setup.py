@@ -104,11 +104,13 @@ def _lane_map_file(scenario_file, name: str, gz: Path, fake_share: str | Path) -
     return str(Path(fake_share) / "maps" / f"{name}.yaml")
 
 
-def load(path, lane_map_file: str = ""):
-    """(레인 지도, 시나리오). 레인 지도는 lane_map_file, 비면 시나리오의 map(fake_robots의
-    지도), 그것도 없으면 기본 지도. 경기장에서 돌릴 수 없으면 ScenarioUnfit."""
+def load(path, lane_map_file: str | None = None):
+    """(레인 지도, 시나리오). 레인 지도는 lane_map_file(""는 기본 지도. arena_for의 값을 그대로
+    준다), 주지 않으면(None) 시나리오의 map(그 옆 maps 폴더), 그것도 없으면 기본 지도. 경기장에서
+    돌릴 수 없으면 ScenarioUnfit."""
     name = Path(path).name
-    site = load_lane_map(lane_map_file or scenario_map_file(path) or None)
+    chosen = scenario_map_file(path) if lane_map_file is None else lane_map_file
+    site = load_lane_map(chosen or None)
     scenario = load_scenario(path, site)
     faults = sorted({f.type for f in scenario.faults if f.type in ROBOT_FAULTS})
     if faults:

@@ -142,6 +142,18 @@ def test_a_site_names_the_lane_map_its_world_was_built_from(tmp_path):
     assert arena.lane_map == str(FAKE / "maps" / "two_lane_segments.yaml")
 
 
+def test_an_empty_lane_map_from_a_site_means_the_default_map_when_loading(tmp_path):
+    """site에 lane_map이 없으면 기본 레인 지도다. load는 그 빈 값을 시나리오의 map으로 바꾸지
+    않는다(인자를 주지 않았을 때만 시나리오의 map을 쓴다)."""
+    mine = tmp_path / "scenarios" / "mine.yaml"
+    mine.parent.mkdir()
+    text = (FAKE / "scenarios" / "basic_orders.yaml").read_text(encoding="utf-8")
+    mine.write_text("map: foo\n" + text, encoding="utf-8")
+    site, scenario = load(mine, "")
+    assert set(site.lanes) == set(load(FAKE / "scenarios" / "basic_orders.yaml")[0].lanes)
+    assert list(scenario.robots) == ["pinky1", "pinky2", "pinky3"]
+
+
 def test_a_scenario_file_finds_its_map_in_the_maps_folder_beside_its_own_first(tmp_path):
     """버전 2 scenario_map_file처럼, 파일로 준 시나리오는 자기 옆 maps 폴더의 지도를 먼저 쓴다."""
     from fleet_gz_sim.fleet_setup import arena_for
