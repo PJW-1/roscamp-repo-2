@@ -26,11 +26,21 @@ def test_the_map_set_is_there():
     assert {"feature_map.yaml", "two_lane_avenue.yaml", "two_lane_segments.yaml"} <= names
 
 
+def test_a_map_with_its_own_params_file_is_checked_with_that_release_distance():
+    """real_arena runs with fleet_params_real_arena (release 0.17: its shortest lane is 0.174 m).
+    Every other shipped map has no file of its own and keeps the default release distance."""
+    from core_helpers import params_for_map
+    assert params_for_map(MAPS / "real_arena.yaml").release_distance_m == 0.17
+    assert params_for_map(MAPS / "feature_map.yaml").release_distance_m == RELEASE
+    assert params_for_map(None).release_distance_m == RELEASE
+
+
 @pytest.mark.parametrize("path", ALL, ids=lambda p: p.name)
 def test_every_map_loads_and_every_waypoint_reaches_docks_and_parking(path):
+    from core_helpers import params_for_map
     site = load_lane_map(path)
     assert site.parking and site.docks
-    assert site.shortest_exit_lane() > RELEASE
+    assert site.shortest_exit_lane() > params_for_map(path).release_distance_m
     for waypoint in site._pose:
         for goal in (*site.docks, site.parking[0]):
             assert site.plan(waypoint, goal)

@@ -1,7 +1,17 @@
 """테스트용 FleetCore 보조 함수."""
+from pathlib import Path
+
 from fleet_core.common.params import load_params
 from grid_map import grid_site
 from legacy_core import FleetCore
+
+DATA = Path(__file__).resolve().parents[1] / "fleet_core" / "data"
+
+
+def params_for_map(path):
+    """지도가 함께 쓰는 파라미터: data의 fleet_params_<지도 이름>.yaml, 없으면 기본 파일."""
+    own = DATA / f"fleet_params_{Path(path).stem}.yaml" if path else None
+    return load_params(own if own is not None and own.is_file() else None)
 
 
 def make_core(robots, params=None):

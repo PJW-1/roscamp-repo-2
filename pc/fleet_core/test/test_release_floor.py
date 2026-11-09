@@ -17,8 +17,8 @@ MAPS = REPO / "sim/fake_robots/maps"
 FEATURE = MAPS / "feature_map.yaml"
 
 
-def core_on(site, on=True):
-    params = replace(load_params(), release_clear_of_floor=on)
+def core_on(site, on=True, params=None):
+    params = replace(params or load_params(), release_clear_of_floor=on)
     return TrafficController(site, params, ["r1"], lambda: 0.0)
 
 
@@ -81,7 +81,8 @@ def test_a_straight_run_is_released_as_before():
 @pytest.mark.parametrize("path", [None, *sorted(MAPS.glob("*.yaml"))],
                          ids=lambda p: p.name if p else "default")
 def test_every_shipped_map_passes_the_start_check(path):
-    core_on(load_lane_map(path))
+    from core_helpers import params_for_map
+    core_on(load_lane_map(path), params=params_for_map(path))
 
 
 def test_an_exit_lane_ending_near_the_zone_floor_is_refused_at_start(tmp_path):
