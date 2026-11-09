@@ -1,0 +1,51 @@
+# 실제 경기장 레인 지도 (2026-11-10, 버전 2 맞추기 지시서). 2.05 x 1.05 m, 장애물 넷
+# (sim/fleet_gz_sim/sites/real_arena.yaml), 핑키 2대. 양방향 구간 없는 한 방향 고리다.
+#  - 들어가는 길: WORK(W) -> 북쪽 벽(WN) -> box_small 북쪽 틈(QO-EN) -> OUTBOUND(O)
+#  - 나오는 길: table_2 남쪽(S1-S2) -> block_long과 box_small 사이 틈(S3-G) -> 대기 칸 쪽(PS)
+#    -> P-1, P-2 -> QW -> WORK
+#  - 가장 빠듯한 곳은 G->PS가 block_long 모서리를 0.106 m로 지나는 자리(몸체 반경 0.08 m면
+#    가장자리 2.6 cm). 상자 위치는 ±5 cm 추정이다.
+#
+#   y
+#  0.925  WN ------------------> QO -----------> EN
+#          ^   [bin]                [box_small]   v
+#  0.5     W              PS <- G                 v
+#          ^               v    [block_long]      O
+#  0.20   QW <- P-2 <- P-1  S3 <- S2 <- S1 [table_2]
+#        0.25  0.575  0.925 1.35 1.35 1.74       1.875  x
+half_width_m: 0.05
+lane_entry_m: 0.25
+origin_m: [0.0, 0.0]
+bundle_two_way: true
+waypoints:
+  - {id: QW, x: 0.25, y: 0.20}
+  - {id: W, x: 0.25, y: 0.50}
+  - {id: WN, x: 0.25, y: 0.925}
+  - {id: QO, x: 1.20, y: 0.925}
+  - {id: EN, x: 1.875, y: 0.925}
+  - {id: O, x: 1.875, y: 0.25}
+  - {id: S1, x: 1.74, y: 0.14}
+  - {id: S2, x: 1.35, y: 0.14}
+  - {id: S3, x: 1.35, y: 0.40}
+  - {id: G, x: 1.245, y: 0.60}
+  - {id: PS, x: 0.93, y: 0.62}
+  - {id: P-1, x: 0.925, y: 0.20}
+  - {id: P-2, x: 0.575, y: 0.15}
+lanes:
+  - {from: QW, to: W}
+  - {from: W, to: WN}
+  - {from: WN, to: QO}
+  - {from: QO, to: EN}
+  - {from: EN, to: O}
+  - {from: O, to: S1}
+  - {from: S1, to: S2}
+  - {from: S2, to: S3}
+  - {from: S3, to: G}
+  - {from: G, to: PS}
+  - {from: PS, to: P-1}
+  - {from: P-1, to: P-2}
+  - {from: P-2, to: QW}
+stations:
+  WORK: {dock: W, queue: [[QW, W]], commit: W, server: workcell, arms: [arm1, arm2], action: fill}
+  OUTBOUND: {dock: O, queue: [[EN, O]], commit: O, server: arm3, arms: [arm3], action: swap}
+parking: [P-1, P-2]
