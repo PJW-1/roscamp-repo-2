@@ -25,6 +25,8 @@ from fake_robots.planner import plan_path  # noqa: E402
 MAPS = REPO / "sim" / "fake_robots" / "maps"
 AVENUE = MAPS / "two_lane_avenue_wide.yaml"
 CROSSING = MAPS / "feature_map_crossing.yaml"
+# 출하 설정(fleet_params.yaml)은 빌리기를 끈다(two_lane_segments 기준선 후퇴). 여기서는 켠다
+ON = {"lane_goal_mode": "path", "borrow_enabled": True}
 BLOCKED_AT = (1.70, 1.30)  # 동쪽행 AE->BE 위, 상자(1.95, 1.30) 앞
 # 상자를 서쪽행 차선(y = 1.00) 쪽으로 비켜 BE로 돌아오는 길
 AROUND = [BLOCKED_AT, (1.79, 1.11), (2.11, 1.11), (2.55, 1.30)]
@@ -45,7 +47,7 @@ class Avenue:
     def __init__(self, **changes):
         self.now = [0.0]
         self.site = load_lane_map(AVENUE)
-        self.params = replace(load_params(), lane_goal_mode="path", **changes)
+        self.params = replace(load_params(), **{**ON, **changes})
         self.core = TrafficController(self.site, self.params, ["r1"], lambda: self.now[0])
         self.pose = self.site.waypoint_pose("AE")
         self.state = "IDLE"
@@ -315,7 +317,7 @@ def test_without_borrowing_the_robot_is_marked_blocked_as_before():
 
 
 def avenue_world(**changes):
-    params = replace(load_params(), lane_goal_mode="path", **changes)
+    params = replace(load_params(), **{**ON, **changes})
     return SimWorld(seed=1, site=load_lane_map(AVENUE), params=params,
                     boxes=((1.75, 1.30, 0.08),), planner=plan_path)
 

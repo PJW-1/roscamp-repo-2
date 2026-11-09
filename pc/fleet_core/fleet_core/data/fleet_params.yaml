@@ -64,7 +64,7 @@ retreat_heading_tolerance_deg: 30.0  # 제안: 로봇 방향이 들어온 레인
 mark_final_goal: true         # 제안(버전 2 4절, 계약 0.8-draft): 잠금 경계에서 끝나는 이동은 final_goal 거짓(핑키가 설 수 있는 속도로만 줄인다)
 corner_radius_m: 0.12         # 제안(버전 2 4절): path 모드 레인 경로의 꺾인 지점을 이 반지름 이하 원호로(꺾인 점과 원호 사이 half_width 이하)
 self_recovery_limit_s: 45.0   # 제안: 로봇이 RECOVERING(자가 복구)을 이만큼 넘게 이어 보내면 BLOCKED로 본다. 핑키 FSM의 두 번 시도는 길어야 약 35 s
-borrow_enabled: true          # 제안(버전 2 1-C): BLOCKED가 obstacle_wait_s 이어지면 로봇 planner로 비켜 갈 길을 받고, 닿는 구역을 한꺼번에 빌려(모두 비고 기다리는 로봇이 없을 때만) 그 길로 간다
+borrow_enabled: false         # 제안(버전 2 1-C, 끔: ROS 경로 요청 배선 전이고 two_lane_segments blocked_lane 기준선이 5/5에서 2/5로 떨어져서): BLOCKED가 obstacle_wait_s 이어지면 로봇 planner로 비켜 갈 길을 받고, 닿는 구역을 한꺼번에 빌려(모두 비고 기다리는 로봇이 없을 때만) 그 길로 간다
 obstacle_wait_s: 3.0          # 제안: 막힌 뒤 비켜 갈 길을 청하기까지 지켜보는 시간(지역 대응 S2)
 borrow_wait_s: 10.0           # 제안: 빌리기를 매 tick 다시 보는 시간. 지나면 거두고 지금의 막힘 처리(LANE_BLOCKED)로
 detour_max_ratio: 2.0         # 제안: 비켜 가는 길이 막힌 자리에서 다시 붙을 지점까지 직선의 이 배수보다 길면 쓰지 않는다

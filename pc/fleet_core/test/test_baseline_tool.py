@@ -311,6 +311,21 @@ def test_a_blocked_lane_run_measures_time_lost_to_the_object():
     assert result["object_hits"] == 1 and result["object_still_s"] >= 15.0
 
 
+@pytest.mark.parametrize("seed", [1, 3, 5])
+def test_a_blocked_lane_run_on_the_segment_map_finishes_with_the_shipped_params(seed):
+    # 1-C borrowing switched on in the shipped file left these seeds isolated after a deadlock
+    # (docs/worklog_2026-11-09_v2-1c.md), so the shipped file keeps it off for now
+    result = baseline.run_one("two_lane_segments", "blocked_lane", seed=seed, mode="path")
+    assert result["finished"] and result["error"] == ""
+
+
+def test_the_box_on_avenue_row_measures_borrowing_although_the_shipped_file_keeps_it_off():
+    result, world = baseline.run_with_world("two_lane_avenue_wide", "box_on_avenue", seed=1,
+                                            mode="path")
+    assert result["finished"] and result["error"] == ""
+    assert "ZONE_BORROWED" in world.event_codes()
+
+
 def test_detours_are_counted_from_the_core_events(tmp_path):
     # the settings of test_detour.feature_world: pinky1 meets an object at 42 s for 15 s
     data = baseline.load_scenario("feature_blocked_lane")
