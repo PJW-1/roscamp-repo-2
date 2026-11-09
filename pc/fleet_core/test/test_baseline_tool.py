@@ -301,8 +301,12 @@ def test_a_basic_run_on_the_default_map_finishes_all_six_orders():
 
 
 def test_the_same_seed_gives_the_same_row():
-    assert (baseline.run_one("lane_map", "basic_orders", seed=2, mode="point")
-            == baseline.run_one("lane_map", "basic_orders", seed=2, mode="point"))
+    def fake_clock_part(row):  # tick_ms_* are wall time
+        return {k: v for k, v in row.items() if not k.startswith("tick_ms_")}
+
+    assert (fake_clock_part(baseline.run_one("lane_map", "basic_orders", seed=2, mode="point"))
+            == fake_clock_part(baseline.run_one("lane_map", "basic_orders", seed=2,
+                                                mode="point")))
 
 
 def test_a_blocked_lane_run_measures_time_lost_to_the_object():
@@ -531,3 +535,121 @@ def test_box_on_avenue_borrows_round_the_box_in_path_mode_only():
     assert {"DETOUR_PLANNED", "ZONE_BORROWED", "DETOUR_DONE", "ZONE_RETURNED"} <= set(seen)
     assert "LANE_BLOCKED" not in seen
     assert world.outside_held == 0
+
+
+# ---- columns shared with the free-floor comparison (compare_floor.py) -----------------------
+
+
+def test_spacing_takes_the_smallest_true_gap_after_each_step_and_the_distance_driven():
+    world = stub_world("r1", "r2", "r3")
+    world.virtual["r2"].x = 1.0
+    world.virtual["r3"].y = 2.0
+    spacing = baseline.Spacing(world)
+    assert spacing.min_gap == float("inf") and spacing.path_m == 0.0  # the start is not a step
+    world.virtual["r1"].x = 0.3
+    spacing.observe(world)
+    assert spacing.min_gap == pytest.approx(0.7) and spacing.path_m == pytest.approx(0.3)
+    world.virtual["r2"].removed = True  # off the floor: no gap, no distance
+    world.virtual["r2"].x = 0.3
+    world.virtual["r1"].x = 0.0
+    spacing.observe(world)
+    assert spacing.min_gap == pytest.approx(0.7) and spacing.path_m == pytest.approx(0.6)
+
+
+def test_tick_times_are_taken_around_every_fleet_tick_and_the_answer_is_kept():
+    world = SimpleNamespace(core=SimpleNamespace(tick=lambda: ["out"]))
+    ticks = baseline.time_ticks(world)
+    assert world.core.tick() == ["out"] and world.core.tick() == ["out"]
+    assert len(ticks) == 2 and all(t >= 0.0 for t in ticks)
+
+
+def test_tick_statistics_are_milliseconds_with_the_p99_index_of_compare_floor():
+    ticks = [i / 1000 for i in range(1, 101)]  # 1 .. 100 ms
+    stats = baseline.tick_stats(ticks)
+    # compare_floor.py: sorted(ticks)[int(0.99 * (len - 1))] -> index 98 -> 99 ms
+    assert stats == {"tick_ms_mean": 50.5, "tick_ms_max": 100.0, "tick_ms_p99": 99.0}
+    assert baseline.tick_stats([]) == {"tick_ms_mean": "", "tick_ms_max": "",
+                                       "tick_ms_p99": ""}
+
+
+def test_a_run_fills_the_free_floor_columns():
+    result, world = baseline.run_with_world("lane_map", "basic_orders", seed=1, mode="path")
+    assert result["finished"]
+    assert 0.0 < result["min_gap_m"] < 5.0 and result["path_m"] > 10.0
+    assert 0.0 < result["tick_ms_mean"] <= result["tick_ms_p99"] <= result["tick_ms_max"]
+    codes = world.event_codes()
+    assert result["deadlocks"] == codes.count("DEADLOCK_DETECTED")
+    assert result["unresolved"] == codes.count("DEADLOCK_UNRESOLVED")
+    assert result["isolations"] == codes.count("ROBOT_ISOLATED")
+    assert result["violations"] == 0
+    assert {"min_gap_m", "path_m", "tick_ms_mean", "tick_ms_max", "tick_ms_p99", "deadlocks",
+            "unresolved", "isolations", "violations"} <= set(baseline.COLUMNS)
+
+
+def test_a_broken_invariant_counts_as_one_violation(monkeypatch):
+    import sim_world
+
+    def broken(self):
+        if self.t >= 1.0:
+            raise AssertionError("made up")
+
+    monkeypatch.setattr(sim_world.SimWorld, "_check_invariants", broken)
+    result = baseline.run_one("lane_map", "basic_orders", seed=1, mode="path")
+    assert result["error"].startswith("invariant at 1.0 s") and not result["finished"]
+    assert result["violations"] == 1
+
+
+def test_speed_and_noise_options_replace_every_robot_setting():
+    data = baseline.load_scenario("basic_orders")
+    world = baseline.build_world(data, "lane_map", seed=1, mode="path", speed=0.12, noise=0.05)
+    assert {(r.speed, r.noise) for r in world.virtual.values()} == {(0.12, 0.05)}
+    assert data["robots"]["pinky2"]["speed_mps"] == 0.18  # the loaded scenario is not changed
+
+
+def test_a_robot_without_speed_or_noise_takes_the_fake_robot_defaults():
+    data = baseline.load_scenario("basic_orders")
+    for spec in data["robots"].values():
+        del spec["speed_mps"], spec["pose_noise_m"]
+    world = baseline.build_world(data, "lane_map", seed=1, mode="path")
+    # fake_robots/scenario.py RobotCfg: 0.2 m/s, no noise
+    assert {(r.speed, r.noise) for r in world.virtual.values()} == {(0.2, 0.0)}
+
+
+def test_a_params_file_replaces_the_shipped_one_but_not_the_goal_mode(tmp_path):
+    text = (baseline.PARAMS_DIR / "fleet_params.yaml").read_text(encoding="utf-8")
+    path = tmp_path / "small.yaml"
+    path.write_bytes(text.replace("release_distance_m: 0.2", "release_distance_m: 0.17")
+                     .replace("lane_goal_mode: path", "lane_goal_mode: point").encode())
+    data = baseline.load_scenario("basic_orders")
+    world = baseline.build_world(data, "lane_map", seed=1, mode="path", params=str(path))
+    assert world.params.release_distance_m == 0.17 and world.params.lane_goal_mode == "path"
+    shipped = baseline.build_world(data, "lane_map", seed=1, mode="path",
+                                   params="fleet_params")  # a name in fleet_core/data
+    assert shipped.params.release_distance_m == 0.2
+
+
+def test_scenarios_are_also_found_in_the_gazebo_and_tool_folders():
+    assert baseline.load_scenario("gz_warehouse")["map"] == "warehouse"
+    assert len(baseline.load_scenario("long_orders_100")["orders"]) == 100
+    with pytest.raises(FileNotFoundError):
+        baseline.load_scenario("no_such_scenario")
+
+
+def test_the_long_run_builds_on_the_default_map():
+    world = baseline.build_world(baseline.load_scenario("long_orders_100"), "lane_map", seed=1,
+                                 mode="path")
+    assert len(world.orders) == 100 and world.params.lane_goal_mode == "path"
+
+
+def test_the_command_line_passes_speed_noise_and_params(tmp_path, monkeypatch):
+    seen = []
+
+    def fake_run(map_, scenario, seed, mode, timeout_s=None, **options):
+        seen.append(options)
+        return baseline._blank_row(map_, scenario, mode, seed, ["pinky1"], 0)
+
+    monkeypatch.setattr(baseline, "run_one", fake_run)
+    baseline.main(["--maps", "lane_map", "--scenarios", "basic_orders", "--modes", "path",
+                   "--seeds", "1", "--speed", "0.12", "--noise", "0.03", "--params",
+                   "fleet_params", "--out", str(tmp_path / "o.csv")])
+    assert seen == [{"speed": 0.12, "noise": 0.03, "params": "fleet_params"}]
