@@ -94,8 +94,12 @@ def test_the_way_in_runs_north_of_box_small_and_the_way_out_south_of_table_2():
     for a, b in itertools.pairwise(order):
         assert (a, b) in LANES.lanes, f"{a}->{b}"
     small, table = BOXES["box_small"], BOXES["table_2"]
-    y = LANES.waypoint_pose("QO")[1]
-    assert y > small.y1 and LANES.waypoint_pose("S1")[1] < table.y0
+    for a, b in (("WN", "QO"), ("QO", "EN")):  # 들어가는 길 전체가 box_small 북쪽
+        assert min(LANES.waypoint_pose(a)[1], LANES.waypoint_pose(b)[1]) > small.y1, (a, b)
+    for a, b in (("O", "S1"), ("S1", "S2")):  # 나오는 길의 앞쪽 전체가 table_2 남쪽
+        assert max(LANES.waypoint_pose(a)[1], LANES.waypoint_pose(b)[1]) < table.y0, (a, b)
+    gap_x = (BOXES["block_long"].x1, small.x0)  # G가 놓인 틈
+    assert gap_x[0] < LANES.waypoint_pose("G")[0] < gap_x[1]
 
 
 def test_the_shipped_world_and_maps_are_what_the_generator_makes(tmp_path):
@@ -131,7 +135,7 @@ def _scenario():
     return found, *load(SCENARIO, found.lane_map)
 
 
-def test_the_real_arena_scenario_runs_in_the_real_arena_world():
+def test_the_real_arena_scenario_picks_the_real_arena_world():
     found, _, _ = _scenario()
     assert found.name == "real_arena"
     assert Path(found.world).name == "real_arena.sdf"
