@@ -92,13 +92,16 @@ class ZoneLocks:
         """옆 구역을 한꺼번에 빌린다(버전 2 1-C). 양보형이라 줄에 서지 않는다.
 
         모든 구역(과 그 충돌 쌍)이 비었거나 이 로봇 것이고 기다리는 로봇도 없을 때만 모두 준다.
-        안 되면 아무것도 잡지 않고, 빌리려는 구역만 기록한다(borrowing, withdraw로 거둔다).
+        이 로봇이 이미 쥔 충돌 쌍 구역의 대기자는 세지 않는다. 그들은 빌리기와 상관없이 이 로봇을
+        기다린다. 안 되면 아무것도 잡지 않고, 빌리려는 구역만 기록한다(borrowing, withdraw로
+        거둔다).
         """
         zones = tuple(dict.fromkeys(zones))
         for zone in zones:
             for unit in (zone, *self._conflicts[zone]):
-                if self._holder[unit] not in (None, robot) or any(
-                        waiter != robot for waiter in self._queue[unit]):
+                waiting = self._holder[unit] != robot
+                if self._holder[unit] not in (None, robot) or (waiting and any(
+                        waiter != robot for waiter in self._queue[unit])):
                     self._borrowing[robot] = zones
                     return False
         self._borrowing.pop(robot, None)
@@ -106,6 +109,18 @@ class ZoneLocks:
             if self._holder[zone] != robot:
                 self._grant(robot, zone)
         return True
+
+    def borrow_blockers(self, robot: str, zones) -> set[str]:
+        """borrow_all을 막는 로봇들. 빌릴 구역(과 충돌 쌍)의 다른 주인과 borrow_all이 세는
+        대기자."""
+        found = set()
+        for zone in dict.fromkeys(zones):
+            for unit in (zone, *self._conflicts[zone]):
+                if self._holder[unit] not in (None, robot):
+                    found.add(self._holder[unit])
+                if self._holder[unit] != robot:
+                    found.update(w for w in self._queue[unit] if w != robot)
+        return found
 
     def borrowing(self, robot: str) -> tuple[str, ...]:
         """빌리려고 기다리는 구역들(허가 전)."""

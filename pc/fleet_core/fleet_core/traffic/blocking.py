@@ -7,6 +7,8 @@
     로봇의 자가 복구(RECOVERING, 제안)는 풀린 보고로 치지 않고, 막힌 시간도 더하지 않는다.
     표시했으면 LANE_CLEARED를 내고 같은 목표를 다시 보낸다. 시도로 세지 않는다.
     두절과 복구 확인 중에는 풀지도 놓지도 않고, 연속 횟수는 처음부터 다시 센다.
+  - obstacle_wait_s(버전 2 1-C, borrow.py): 표시 전에 비켜 갈 길을 청하고 옆 구역을 빌린다.
+    시도하는 동안(빌리기 대기 borrow_wait_s까지) 표시를 미룬다. 우회를 보내면 막힘을 닫는다.
   - blocked_timeout_s: ERROR(BLOCKED). 시간은 BLOCKED로 보고된 동안만 센다.
     풀린 뒤 blocked_rejoin_s 안에 같은 레인에서 다시 막히면 이어 센다.
 줄 서기(같은 레인이나 다음 레인 앞 queue_gap_m 안의 정상 로봇)는 막힘으로 치지 않는다.
@@ -78,6 +80,8 @@ class TrafficBlocking:
         m.block = _Block(lane, total, now)
 
     def _clear_block(self, m: _Mission, how: str) -> None:
+        if m.detour is not None:
+            self._reject_detour(m, "the way cleared")  # 비켜 갈 필요가 없어졌다(1-C)
         b, m.block = m.block, None
         m.block_rejoin = (b.lane, self._clock(), b.total)
         m.stall_from = None  # 멈춤 시계는 0부터 다시 잰다
@@ -116,8 +120,14 @@ class TrafficBlocking:
         b.seen = now
         if not m.live:
             return
-        if not b.marked and b.total >= self.params.blocked_mark_s:
+        busy = self._watch_detour(m, now) and not b.marked  # 비켜 가기·빌리기 시도(1-C)
+        if m.block is None:
+            return  # 우회를 보내며 막힘을 닫았다
+        if not b.marked and not busy and b.total >= self.params.blocked_mark_s:
             self._mark_block(m)
+            if m.detour is not None:  # 묻던 시도는 거두고, 선 뒤 바로 다시 묻는다
+                self._reject_detour(m, "the lane was marked first")
+                b.detour_ended = None
         if b.marked and m.block_cancel is None and b.still_n >= self.params.release_confirm_samples:
             self._free_unentered(m)
         if b.total >= self.params.blocked_timeout_s:

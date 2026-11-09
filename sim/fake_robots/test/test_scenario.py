@@ -12,7 +12,8 @@ SIX = {"basic_orders", "order_burst", "shared_lane_failure", "stock_shortage", "
        "operator_recovery", "blocked_lane", "feature_basic_orders", "feature_blocked_lane",
        "auto_isolation", "feature_auto_isolation", "off_lane", "reinstate",
        "free_area_basic", "free_area_box",  # 버전 2 F-1. ROS 통합 시험 목록에는 넣지 않았다
-       "free_area_crossing"}  # 버전 2 F-2. 판정(judge.py)이 칸 잠금을 몰라 ROS 시험에는 넣지 않는다
+       "free_area_crossing",  # 버전 2 F-2. 판정(judge.py)이 칸 잠금을 몰라 ROS 시험에는 넣지 않는다
+       "box_on_avenue"}  # 버전 2 1-C. ROS 통합 시험 목록에는 넣지 않았다
 
 
 @pytest.fixture(scope="module")

@@ -28,6 +28,7 @@ from fleet_core.common.commands import (
     ZoneView,
 )
 from fleet_core.traffic.blocking import TrafficBlocking
+from fleet_core.traffic.borrow import TrafficBorrow
 from fleet_core.traffic.detour import TrafficDetour
 from fleet_core.traffic.free_area import TrafficFreeArea
 from fleet_core.traffic.idle_watch import TrafficIdleWatch
@@ -37,6 +38,7 @@ from fleet_core.traffic.mission import (
     AT_STATION,
     BLOCKED,
     COMM_LOST,
+    DETOUR,
     DOCK,
     DOCKING,
     ERROR,
@@ -74,7 +76,7 @@ from fleet_core.traffic.zones import ZoneLocks
 
 class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, TrafficDetour,
                         TrafficIsolation, TrafficPath, TrafficReleaseFloor, TrafficReinstate,
-                        TrafficIdleWatch, TrafficFreeArea):
+                        TrafficIdleWatch, TrafficFreeArea, TrafficBorrow):
     def __init__(self, site, params, robots, clock, next_goal_id=None):
         if site.shortest_exit_lane() <= params.release_distance_m:
             raise ValueError(
@@ -254,6 +256,9 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         if m:
             self._cancel_finished(m, goal_id)
         goal = m.goal if m else None
+        if goal is not None and goal.id == goal_id and goal.kind == DETOUR:
+            self._detour_result(m, goal, success, reason)  # 1-C, borrow.py
+            return
         if goal is None or goal.id != goal_id or goal.kind != MOVE:
             return
         m.goal = None
@@ -282,6 +287,9 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         if goal.kind == RETREAT:
             self._retreat_ended(m, False, "REJECTED")  # 다시 보내지 않는다(1-A)
             return
+        if goal.kind == DETOUR:
+            self._detour_failed(m, "REJECTED")  # 1-C
+            return
         m.goal = None
         m.not_sent_warned = False
         if goal.kind == MOVE:
@@ -298,6 +306,9 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
             return
         if goal.kind == RETREAT:
             self._retreat_ended(m, False, "NOT_SENT")  # 서버가 없다. 전처럼 풀지 못한 교착
+            return
+        if goal.kind == DETOUR:
+            self._detour_failed(m, "NOT_SENT")  # 1-C
             return
         m.goal = None
         if goal.kind == MOVE:
@@ -392,6 +403,7 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
                 m.stall_hold = False
             if m.block:
                 self._watch_block(m, now)
+            self._watch_returns(m)
             self._watch_idle(m, now)
         return self._check_deadlock(now)
 
@@ -631,6 +643,10 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
             return
         m.stall_from = None
         m.stall_hold = False
+        if m.goal and m.goal.kind == DETOUR:
+            self._cancel_goal(m)
+            self._detour_failed(m, STALLED)  # 길 밖에서 섰다(1-C)
+            return
         if m.goal:
             self._cancel_goal(m)
         self._event("WARN", "GOAL_STALLED",
@@ -749,8 +765,12 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         return None
 
     def _holds_ahead(self, m: _Mission, current: str, held) -> bool:
-        """현재 구역과 빌린 구역 말고 쥔 구역이 있다. 있으면 다음 구역을 청하지 않는다."""
-        return any(zone != current and zone not in m.borrowed for zone in held)
+        """현재 구역과 빌린 구역 말고 쥔 구역이 있다. 있으면 다음 구역을 청하지 않는다.
+
+        우회가 끝나 해제 규칙에 넘긴 빌린 구역(lent, 1-C)도 세지 않는다. 다시 붙은 지점이 그
+        바닥에서 해제 거리 안이면 떠나야 놓인다."""
+        return any(zone != current and zone not in m.borrowed and zone not in m.lent
+                   for zone in held)
 
     def _release_passed_zones(self, m: _Mission) -> None:
         """벗어났고 다음에 필요 없는 구역을 놓는다.
@@ -926,6 +946,8 @@ class TrafficController(TrafficOffLane, TrafficRecovery, TrafficBlocking, Traffi
         if self._held_for_block(m):
             # 막힌 레인 앞에 서서 풀리기와 취소 결과를 기다린다. 결과 전 새 goal은 추적을 흐린다
             return
+        if m.goal is not None and m.goal.kind == DETOUR:
+            return  # 비켜 가는 중(1-C). 끝나야 경로 인덱스가 정해진다
         if m.phase in (TO_WORK, TO_OUTBOUND, TO_PARK):
             self._drive(m)
         elif m.phase == DOCKING:

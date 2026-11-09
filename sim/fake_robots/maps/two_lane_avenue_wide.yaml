@@ -1,0 +1,52 @@
+# 버전 2 1-C 개발용 지도(2026-11-09, 새 파일). two_lane_avenue와 같고 두 차선 사이를 0.2 m에서
+# 0.3 m로 넓혔다(동쪽행 y = 1.30, 서쪽행 y = 1.00). 원래 지도는 그대로 둔다.
+# 넓힌 까닭: 0.2 m에서는 차선 양 끝 구역이 충돌 쌍(BE-BW, AW-R, BW-R)이다. 비켜 간 로봇이 BE에서 R을
+# 청하면 BW를 기다리는 O의 로봇 뒤에 서는 잠금 규칙(blockers의 충돌 쌍 대기자) 때문에 상자 시나리오
+# SimWorld에서 교착이 났다. 그 규칙은 팀 결정이라 지도로 피한다. 0.3 m는 원래 지도 머리말의 권장
+# (2r + 2e + 여유, 약 0.3 m)과도 맞다.
+half_width_m: 0.05    # 추정: 레인에서 이 거리까지는 레인 위로 친다
+lane_entry_m: 0.25    # 레인 바닥이 시작되는 거리. 여기서 half_width_m을 뺀 점을
+                      # 지나면 그 레인의 구역 안으로 친다
+origin_m: [0.0, 0.0]
+bundle_two_way: true  # 양방향 쌍은 잠금 하나
+waypoints:
+  - {id: W, x: 1.05, y: 1.55}      # WORK 도크
+  - {id: AE, x: 1.45, y: 1.30}     # 동쪽행 레인 서쪽 끝
+  - {id: AW, x: 1.45, y: 1.00}     # 서쪽행 레인 서쪽 끝
+  - {id: L, x: 1.05, y: 0.75}      # 대기열로 돌아가는 길에 AVENUE와 S가 합류
+  - {id: Q, x: 0.65, y: 1.15}      # 마지막 갈림: 도크 또는 대기 줄
+  - {id: BE, x: 2.55, y: 1.30}     # 동쪽행 레인 동쪽 끝
+  - {id: BW, x: 2.55, y: 1.00}     # 서쪽행 레인 동쪽 끝
+  - {id: R, x: 2.95, y: 0.75}
+  - {id: QO, x: 3.35, y: 1.15}     # 출고 대기열
+  - {id: O, x: 2.95, y: 1.55}      # OUTBOUND 도크
+  - {id: N, x: 2.00, y: 1.70}      # 교차로 앞 정지선
+  - {id: S, x: 2.00, y: 0.60}      # 교차로 건너편
+  - {id: P-3, x: 0.35, y: 1.55}    # 대기 줄, 주행 순서대로
+  - {id: P-4, x: 0.35, y: 1.95}
+  - {id: P-5, x: 0.80, y: 2.05}
+  - {id: P-6, x: 1.20, y: 2.05}
+two_way: {}
+lanes:
+  - {from: W, to: AE}
+  - {from: AE, to: BE}
+  - {from: BW, to: AW}
+  - {from: AW, to: L}
+  - {from: L, to: Q}
+  - {from: Q, to: W}
+  - {from: O, to: BW}
+  - {from: BE, to: R}
+  - {from: R, to: QO}
+  - {from: QO, to: O}
+  - {from: Q, to: P-3}
+  - {from: P-3, to: P-4}
+  - {from: P-4, to: P-5}
+  - {from: P-5, to: P-6}
+  - {from: P-6, to: N}
+  - {from: N, to: S}
+  - {from: S, to: L}
+stations:
+  WORK: {dock: W, queue: [[L, Q], [Q, W]], commit: W, server: workcell, arms: [arm1, arm2], action: fill}
+  OUTBOUND: {dock: O, queue: [[R, QO], [QO, O]], commit: O, server: arm3, arms: [arm3], action: swap}
+# 주행 순서대로. 대기 로봇은 가장 깊은 빈 곳으로 가므로 먼저 온 로봇이 먼저 나간다.
+parking: [P-3, P-4, P-5, P-6]

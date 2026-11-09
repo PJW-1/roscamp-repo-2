@@ -94,11 +94,12 @@ DEFAULT_PLAN = {
     "two_lane_segments": ["basic_orders", "blocked_lane", "reinstate"],
     "feature_map_free": ["free_area_basic", "free_area_box"],
     "feature_map_crossing": ["free_area_crossing"],
+    "two_lane_avenue_wide": ["box_on_avenue"],
 }
 MODES = ("path", "point")
 # Scenarios the point mode cannot run: the fake robot drives a point goal in a straight line and
 # does not plan around boxes the way Nav2 would, so it would drive into the box
-PATH_ONLY = {"free_area_box"}
+PATH_ONLY = {"free_area_box", "box_on_avenue"}
 SEEDS = (1, 2, 3, 4, 5)
 WORLD_FAULTS = ("blocked",)
 OPERATOR_FAULTS = ("operator_remove", "operator_reinstate")

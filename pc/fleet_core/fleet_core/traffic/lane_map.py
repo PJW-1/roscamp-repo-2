@@ -585,12 +585,9 @@ class LaneMap:
                 found.add(area.name)
         return found
 
-    def zones_touched(self, points, sample_m: float, release_m: float) -> set[str]:
-        """경로가 닿는 구역(버전 2 1-C): 제어기의 _off_the_floor가 아직 놓지 않을 거리 안의 구역.
-
-        구역과 진입 레인은 바닥 거리 + half_width, 칸은 상자 거리 그대로 release_m과 비교한다.
-        칸 잠금 단위(cell_units)도 함께 낸다. 경로를 sample_m 이하 간격 점으로 나누고, 점 사이를
-        지나는 부분을 놓치지 않도록 점 간격의 반만큼 더 넓게 본다(더 잡는 쪽)."""
+    @staticmethod
+    def _samples(points, sample_m: float) -> tuple[list, float]:
+        """경로를 sample_m 이하 간격 점으로 나눈다. (점들, 가장 큰 점 간격)."""
         points = [tuple(float(v) for v in p) for p in points]
         samples, gap = points[:1], 0.0
         for (ax, ay), (bx, by) in zip(points, points[1:], strict=False):
@@ -598,13 +595,39 @@ class LaneMap:
             gap = max(gap, math.hypot(bx - ax, by - ay) / steps)
             samples += [(ax + (bx - ax) * k / steps, ay + (by - ay) * k / steps)
                         for k in range(1, steps + 1)]
+        return samples, gap
+
+    def _touch_units(self, cells: bool) -> list:
+        return [*self.zones, *(self.cell_units() if cells else ())]
+
+    def _touch_gap(self, x: float, y: float, zone: str) -> float:
+        """_off_the_floor와 같은 기준의 거리. 구역과 진입 레인은 바닥 거리 + half_width, 칸은
+        그대로."""
+        pad = 0.0 if self.unit_area(zone) is not None and ">" not in zone else self.half_width
+        return self.distance_to_zone(x, y, zone) + pad
+
+    def zones_touched(self, points, sample_m: float, release_m: float,
+                      cells: bool = True) -> set[str]:
+        """경로가 닿는 구역(버전 2 1-C): 제어기의 _off_the_floor가 아직 놓지 않을 거리 안의 구역.
+
+        구역과 진입 레인은 바닥 거리 + half_width, 칸은 상자 거리 그대로 release_m과 비교한다.
+        cells면 칸 잠금 단위(cell_units)도 함께 낸다(칸 모드가 꺼진 잠금에는 칸이 없다). 경로를
+        sample_m 이하 간격 점으로 나누고, 점 사이를 지나는 부분을 놓치지 않도록 점 간격의 반만큼
+        더 넓게 본다(더 잡는 쪽)."""
+        samples, gap = self._samples(points, sample_m)
         reach = release_m + gap / 2
-        found = set()
-        for zone in [*self.zones, *self.cell_units()]:
-            pad = 0.0 if self.unit_area(zone) is not None and ">" not in zone else self.half_width
-            if any(self.distance_to_zone(x, y, zone) + pad < reach for x, y in samples):
-                found.add(zone)
-        return found
+        return {zone for zone in self._touch_units(cells)
+                if any(self._touch_gap(x, y, zone) < reach for x, y in samples)}
+
+    def off_floor_points(self, points, sample_m: float, release_m: float,
+                         cells: bool = True) -> list:
+        """어느 구역에도 닿지 않는 경로 점들(버전 2 1-C). 잠그지 않은 바닥으로 나가는 곳이다.
+
+        닿는다는 기준은 zones_touched와 같되 점 간격 여유를 더하지 않는다(덜 봐주는 쪽)."""
+        samples, _ = self._samples(points, sample_m)
+        units = self._touch_units(cells)
+        return [(x, y) for x, y in samples
+                if not any(self._touch_gap(x, y, zone) < release_m for zone in units)]
 
     # ---- conflict pairs -----------------------------------------------------------------------
 
