@@ -488,3 +488,178 @@ def test_without_fleet_check_the_recovery_probe_runs_on_its_own(made):
     [probe] = nodes(fleet, "recovery_probe")
     assert params(probe) == {"use_sim_time": True, "robots": ROBOTS, "result_dir": "out",
                              "settle_s": 2.0}
+
+
+# -- 잠금 경계 이동의 둘째 RPP, 속도 상한, 충돌 검사, 관제 파라미터 이름 ----------------------
+
+THROUGH = "FollowPathThrough"
+
+
+@pytest.fixture
+def nav_tmp(monkeypatch, tmp_path):
+    """The sim Nav2 params copies go to tmp_path, not the system temp folder."""
+    from fleet_gz_sim import launch_parts
+    monkeypatch.setattr(launch_parts.tempfile, "gettempdir", lambda: str(tmp_path))
+    return tmp_path
+
+
+def nav2_source() -> dict:
+    import yaml
+    from ament_index_python.packages import get_package_share_directory
+    path = (Path(get_package_share_directory("pinky_nav_config")) / "params"
+            / "nav2_params.yaml")
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def nav2_files(actions) -> dict:
+    """{robot namespace: the Nav2 params that robot's Nav2 gets}, read now (the files are
+    per robot and process, so a later launch in this test writes over them)."""
+    import yaml
+    out = {}
+    for nav in includes(actions, "nav2.launch.py"):
+        args = launch_args(nav)
+        out[args["namespace"]] = yaml.safe_load(
+            Path(args["params_file"]).read_text(encoding="utf-8"))
+    return out
+
+
+def fsm_args(actions) -> dict:
+    """{robot namespace: pinky_fsm.launch.py arguments}."""
+    return {launch_args(i)["namespace"]: launch_args(i)
+            for i in includes(actions, "pinky_fsm.launch.py")}
+
+
+def test_lock_boundary_moves_run_on_the_second_rpp_by_default(made, nav_tmp):
+    """The robot Nav2 params already load FollowPathThrough; the sim copy changes only AMCL and
+    pinky_fsm sends paths that end at a lock boundary (final_goal false) there."""
+    actions = run(made)
+    assert {ns: a["through_controller_id"] for ns, a in fsm_args(actions).items()} == {
+        ns: THROUGH for ns in ROBOTS}
+    source = nav2_source()
+    assert source["controller_server"]["ros__parameters"]["controller_plugins"] == [
+        "FollowPath", THROUGH]
+    used = nav2_files(actions)
+    assert set(used) == set(ROBOTS)
+    for robot, data in used.items():
+        assert data["controller_server"] == source["controller_server"], robot
+        assert {k: v for k, v in data.items() if k != "amcl"} == \
+            {k: v for k, v in source.items() if k != "amcl"}, robot
+
+
+def test_without_pass_through_both_rpps_stay_loaded_but_every_move_uses_followpath(
+        made, nav_tmp):
+    """nav_pass_through:=false compares against the speed limit alone on the same build."""
+    on = nav2_files(run(made))
+    actions = run(made, nav_pass_through="false")
+    assert nav2_files(actions) == on
+    assert {a["through_controller_id"] for a in fsm_args(actions).values()} == {""}
+
+
+def test_nav_max_speed_caps_both_rpps_and_the_fsm_speed_limit_of_every_robot(made, nav_tmp):
+    """RPP takes the FSM's lock-boundary limit as its speed, so the cap goes to both."""
+    capped_actions = run(made, nav_max_speed="0.12")
+    capped = nav2_files(capped_actions)
+    plain_actions = run(made)
+    plain = nav2_files(plain_actions)
+    assert set(capped) == set(plain) == set(ROBOTS)
+    for ns in ROBOTS:
+        for name in ("FollowPath", THROUGH):
+            assert capped[ns]["controller_server"]["ros__parameters"][name][
+                "desired_linear_vel"] == 0.12, (ns, name)
+            assert plain[ns]["controller_server"]["ros__parameters"][name][
+                "desired_linear_vel"] == 0.25, (ns, name)
+    assert {a["horizon_cap_mps"] for a in fsm_args(capped_actions).values()} == {"0.12"}
+    assert all("horizon_cap_mps" not in a for a in fsm_args(plain_actions).values())
+
+
+@pytest.mark.parametrize("bad", ["fast", "0", "-1", "nan", "inf", "0.05", "0.079", "0.3"])
+def test_a_bad_nav_max_speed_stops_the_launch(made, nav_tmp, bad):
+    """Below the FSM's own speeds (backup 0.08, slow-down floor 0.05 m/s) the cap would not hold;
+    above the robot's Nav2 speed it would speed the robot up."""
+    with pytest.raises(ValueError, match="max_speed"):
+        run(made, nav_max_speed=bad)
+
+
+def test_the_slowest_nav_max_speed_is_the_fsm_backup_speed(made, nav_tmp):
+    from pinky_fsm.core import FsmParams
+    slowest = FsmParams().backup_speed_mps
+    assert slowest >= FsmParams().horizon_min_mps
+    actions = run(made, nav_max_speed=str(slowest))
+    assert {a["horizon_cap_mps"] for a in fsm_args(actions).values()} == {str(slowest)}
+
+
+def test_the_fsm_slow_down_floor_also_bounds_nav_max_speed(made, nav_tmp, monkeypatch):
+    """Either FSM speed may be the larger one."""
+    import types
+
+    import pinky_fsm.core
+    monkeypatch.setattr(pinky_fsm.core, "FsmParams", lambda: types.SimpleNamespace(
+        backup_speed_mps=0.03, horizon_min_mps=0.06))
+    with pytest.raises(ValueError, match="nav_max_speed"):
+        run(made, nav_max_speed="0.059")
+    actions = run(made, nav_max_speed="0.06")
+    assert {a["horizon_cap_mps"] for a in fsm_args(actions).values()} == {"0.06"}
+
+
+def test_nav_collision_check_false_turns_the_rpp_check_off_for_every_robot(made, nav_tmp):
+    off = nav2_files(run(made, nav_collision_check="false"))
+    plain = nav2_files(run(made))
+    assert set(off) == set(plain) == set(ROBOTS)
+    for ns in ROBOTS:
+        for name in ("FollowPath", THROUGH):
+            assert off[ns]["controller_server"]["ros__parameters"][name][
+                "use_collision_detection"] is False, (ns, name)
+            assert plain[ns]["controller_server"]["ros__parameters"][name][
+                "use_collision_detection"] is True, (ns, name)
+
+
+@pytest.mark.parametrize("name", ["nav_pass_through", "nav_collision_check"])
+def test_a_misspelt_nav_switch_stops_the_launch(made, nav_tmp, name):
+    with pytest.raises(ValueError, match=name):
+        run(made, **{name: "ture"})
+
+
+def fleet_params_files(actions) -> set:
+    return {params(n)["params_file"] for n in nodes(after_ready(actions))
+            if "params_file" in params(n)}
+
+
+def test_a_bare_fleet_params_name_is_a_fleet_core_data_file(made, nav_tmp):
+    from fleet_core.common.params import DEFAULT_PARAMS
+    assert fleet_params_files(run(made, fleet_params_file="fleet_params")) == {
+        str(DEFAULT_PARAMS)}
+    # a file name with .yaml but no folder is a data file too, not a file in the launch folder
+    # (Codex review of fbd8e38)
+    assert fleet_params_files(run(made, fleet_params_file="fleet_params_real_arena.yaml")) == {
+        str(DEFAULT_PARAMS.parent / "fleet_params_real_arena.yaml")}
+    mine = nav_tmp / "mine.yaml"
+    mine.write_bytes(DEFAULT_PARAMS.read_bytes())
+    assert fleet_params_files(run(made, fleet_params_file=str(mine))) == {str(mine)}, \
+        "a path stays as given"
+    assert fleet_params_files(run(made)) == {""}, "empty: the installed fleet_params.yaml"
+
+
+def test_the_real_arena_command_line_resolves_every_argument(made, nav_tmp):
+    """The command in scenarios/gz_real_arena.yaml: its fleet params by data file name, a
+    slower speed for both RPPs and the FSM cap, and no RPP collision check."""
+    from fleet_core.common.params import DEFAULT_PARAMS
+    actions = run(made, scenario="gz_real_arena", sim_dock_stub="true",
+                  fleet_params_file="fleet_params_real_arena", nav_max_speed="0.12",
+                  nav_collision_check="false")
+    assert fleet_params_files(actions) == {
+        str(DEFAULT_PARAMS.parent / "fleet_params_real_arena.yaml")}
+    used = nav2_files(actions)
+    assert set(used) == {"pinky1", "pinky2"}
+    for ns, data in used.items():
+        for name in ("FollowPath", THROUGH):
+            rpp = data["controller_server"]["ros__parameters"][name]
+            assert rpp["desired_linear_vel"] == 0.12, (ns, name)
+            assert rpp["use_collision_detection"] is False, (ns, name)
+    assert {(a["horizon_cap_mps"], a["through_controller_id"])
+            for a in fsm_args(actions).values()} == {("0.12", THROUGH)}
+
+
+def test_an_unknown_fleet_params_name_stops_the_launch(made, nav_tmp):
+    for name in ("no_such_params", "no_such_params.yaml"):
+        with pytest.raises(ValueError, match="fleet_params_file"):
+            run(made, fleet_params_file=name)

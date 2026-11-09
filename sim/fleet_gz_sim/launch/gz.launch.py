@@ -24,6 +24,7 @@
   하나로 모으고, 로봇마다 Nav2를 프로세스 하나로 묶는다(nav_composition). 노드를 더하면
   test_launch_wiring의 프로세스 수 시험이 한도를 알려 준다.
 """
+import math
 import os
 from pathlib import Path
 
@@ -53,7 +54,8 @@ ARGS = {
     "nav_composition": ("true", "로봇마다 Nav2 노드 9개를 프로세스 하나로. false면 9개"
                                 "(3대면 DDS 참여자가 LOCALHOST 탐색 한도 32개를 넘는다)"),
     "result_dir": ("gz_result", "시나리오 모니터 결과 폴더"),
-    "fleet_params_file": ("", "관제 파라미터 파일. 비우면 설치된 fleet_params.yaml"),
+    "fleet_params_file": ("", "관제 파라미터 파일. 비우면 설치된 fleet_params.yaml, 경로 없는"
+                              " 이름이면 fleet_core/data/<이름>.yaml(예: fleet_params_real_arena)"),
     "monitor": ("true", "시나리오 판정. 끝나면 launch를 끝낸다"),
     "obstacles": ("", "레인에 상자를 놓았다 치우는 일정(fleet_gz_sim/obstacles의 이름이나 파일)."
                       " 비면 장애물 없음. roam은 300 s마다 4개"),
@@ -61,6 +63,12 @@ ARGS = {
                                " false면 진짜 pinky_fsm(DOCK_UNAVAILABLE)"),
     "fleet_check": ("true", "로봇 사이 최소 거리, 정지 횟수, 쥔 구역 밖 위치 수를"
                             " result_dir/fleet_check.json에"),
+    "nav_pass_through": ("true", "잠금 경계에서 끝나는 이동(final_goal 거짓)을 접근 감속 없는 둘째"
+                                 " RPP(FollowPathThrough)로. false면 모두 FollowPath(둘 다 뜬다)"),
+    "nav_max_speed": ("", "두 RPP의 최고 속도이자 pinky_fsm 잠금 경계 속도 제한의 상한(m/s)."
+                          " 비면 Nav2 설정 그대로(0.25)"),
+    "nav_collision_check": ("true", "false면 두 RPP의 충돌 검사를 끈다(틈 옆 여유가 몇 cm인"
+                                    " 좁은 경기장에서 라이다 잡음이 벽을 발자국 안에 찍을 때)"),
 }
 ARMS = "arm1 arm2 arm3"
 
@@ -71,6 +79,41 @@ def flag(text: str, name: str) -> bool:
     if value not in ("true", "false", "1", "0"):
         raise ValueError(f"{name} must be true or false, got {text!r}")
     return value in ("true", "1")
+
+
+def params_file_of(value: str) -> str:
+    """fleet_params_file: "" stays "", a path (with a folder) stays as given, a bare name with or
+    without .yaml is fleet_core/data/<name>.yaml."""
+    from fleet_core.common.params import DEFAULT_PARAMS
+    if not value or "/" in value:
+        return value
+    name = value if value.endswith(".yaml") else f"{value}.yaml"
+    path = DEFAULT_PARAMS.parent / name
+    if not path.is_file():
+        raise ValueError(f"fleet_params_file {value!r}: no {path}")
+    return str(path)
+
+
+def speed_of(text: str) -> float | None:
+    """nav_max_speed: "" means the Nav2 file's speed. A typo must not quietly mean full speed.
+    The upper bound (the robot's Nav2 speed) is checked by launch_parts.sim_nav_params."""
+    if not text.strip():
+        return None
+    try:
+        value = float(text)
+    except ValueError:
+        raise ValueError(f"nav_max_speed must be a number in m/s, got {text!r}") from None
+    if not (math.isfinite(value) and value > 0):
+        raise ValueError(f"nav_max_speed must be above 0 m/s, got {text!r}")
+    # pinky_fsm backs up at backup_speed_mps and never slows a lock-boundary path below
+    # horizon_min_mps; a cap under those would not hold
+    from pinky_fsm.core import FsmParams
+    fsm = FsmParams()
+    slowest = max(fsm.backup_speed_mps, fsm.horizon_min_mps)
+    if value < slowest:
+        raise ValueError(f"nav_max_speed must be at least {slowest} m/s (pinky_fsm backup and "
+                         f"slow-down speeds), got {text!r}")
+    return value
 
 
 def fleet(scenario_file: str, robots: list[str], result_dir: str, monitor: bool,
@@ -166,6 +209,10 @@ def _start(context):
     composed = flag(value("nav_composition"), "nav_composition")
     stub = flag(value("sim_dock_stub"), "sim_dock_stub")
     check = flag(value("fleet_check"), "fleet_check")
+    through = flag(value("nav_pass_through"), "nav_pass_through")
+    collision_check = flag(value("nav_collision_check"), "nav_collision_check")
+    max_speed = speed_of(value("nav_max_speed"))
+    params_file = params_file_of(value("fleet_params_file"))  # 틀린 이름이면 띄우기 전에 멈춘다
     actions = [*launch_parts.world(flag(value("gui"), "gui"), arena.world),
                launch_parts.bridge(robots)]
     for robot, (x, y, yaw) in poses.items():
@@ -174,7 +221,11 @@ def _start(context):
                                       nav_log_level=value("nav_log_level"),
                                       rviz=robot == value("rviz"), dock_aside=stub,
                                       nav_composition=composed, nav_map=arena.nav_map,
-                                      nav_map_fine=arena.nav_map_fine)
+                                      nav_map_fine=arena.nav_map_fine,
+                                      through_controller_id=(launch_parts.THROUGH_CONTROLLER
+                                                             if through else ""),
+                                      nav_max_speed=max_speed,
+                                      nav_collision_check=collision_check)
     if value("rviz") == "fleet":
         actions += fleet_rviz(robots, arena.lane_map)
     map_file = {"map_file": arena.lane_map}
@@ -191,7 +242,7 @@ def _start(context):
         if event.returncode != 0:
             return [LogInfo(msg="fleet_gz_sim: 로봇이 IDLE이 되지 않아 끝낸다"), Shutdown()]
         return fleet(scenario_file, robots, value("result_dir"), monitor,
-                     value("fleet_params_file"), obstacles_file, check, arena.lane_map)
+                     params_file, obstacles_file, check, arena.lane_map)
 
     actions += [wait, RegisterEventHandler(OnProcessExit(target_action=wait, on_exit=after_wait))]
     return actions

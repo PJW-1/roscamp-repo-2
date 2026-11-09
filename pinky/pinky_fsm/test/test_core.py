@@ -1079,8 +1079,29 @@ def near_p5(back_m):
     return (P4[0] + (P5[0] - P4[0]) * k, P4[1] + (P5[1] - P4[1]) * k, 0.2)
 
 
+def can_stop(left):
+    """What can still stop within left (m) after the limit takes horizon_latency_s to act."""
+    p = FsmParams()
+    margin = p.horizon_cap_mps * p.horizon_latency_s
+    return math.sqrt(2 * p.horizon_decel_mps2 * max(0.0, left - margin))
+
+
 def test_a_goal_at_a_lock_boundary_limits_the_speed_to_what_can_stop_at_its_end():
     fsm = ready()
+    fsm.move("g1", 1.0, "P-5", (*P5, 0.2), [P3, P4, P5], (*P3, NORTH), final_goal=False)
+    assert limits(fsm.tick(1.1, (*P3, NORTH), DRIVING, no_obstacle)) == [], "멀면 제한이 없다"
+    # 0.25 m/s x 0.3 s = 0.075 m of the distance left goes by before the limit acts
+    [v] = limits(fsm.tick(1.2, near_p5(0.15), DRIVING, no_obstacle))
+    assert v == pytest.approx(0.19)  # sqrt(2 x 0.25 x 0.075) = 0.194, floored
+    [v] = limits(fsm.tick(1.3, near_p5(0.10), DRIVING, no_obstacle))
+    assert v == pytest.approx(0.11)  # sqrt(2 x 0.25 x 0.025) = 0.112, floored
+    assert limits(fsm.tick(1.4, near_p5(0.10), DRIVING, no_obstacle)) == [], "같으면 다시 안 보낸다"
+    [v] = limits(fsm.tick(1.5, near_p5(0.07), DRIVING, no_obstacle))
+    assert v == pytest.approx(0.05), "아래 한계: the latency margin is used up"
+
+
+def test_without_latency_the_limit_is_what_can_stop_at_the_end():
+    fsm = ready(horizon_latency_s=0.0)
     fsm.move("g1", 1.0, "P-5", (*P5, 0.2), [P3, P4, P5], (*P3, NORTH), final_goal=False)
     assert limits(fsm.tick(1.1, (*P3, NORTH), DRIVING, no_obstacle)) == [], "멀면 제한이 없다"
     [v] = limits(fsm.tick(1.2, near_p5(0.10), DRIVING, no_obstacle))
@@ -1117,9 +1138,65 @@ def test_a_fresh_fsm_lifts_any_limit_left_from_before_a_restart():
     assert limits(fsm.tick(0.1, (*P3, NORTH), STILL, no_obstacle)) == []
 
 
-@pytest.mark.parametrize("back_m", [0.135, 0.07, 0.03])
+@pytest.mark.parametrize("back_m", [0.15, 0.12, 0.09, 0.07, 0.03])
 def test_the_limit_never_rounds_above_what_can_stop(back_m):
     fsm = ready()
     fsm.move("g1", 1.0, "P-5", (*P5, 0.2), [P3, P4, P5], (*P3, NORTH), final_goal=False)
     [v] = limits(fsm.tick(1.2, near_p5(back_m), DRIVING, no_obstacle))
-    assert v <= math.sqrt(2 * 0.25 * fsm.distance_remaining(near_p5(back_m))) + 1e-12
+    left = fsm.distance_remaining(near_p5(back_m))
+    assert v <= max(FsmParams().horizon_min_mps, can_stop(left)) + 1e-12
+
+
+@pytest.mark.parametrize("back_m", [0.14, 0.16, 0.175, 0.2])
+def test_the_limit_never_asks_more_than_the_nav2_desired_speed(back_m):
+    """RPP takes an absolute speed limit as its desired_linear_vel without comparing it to the
+    configured one, so a limit above 0.25 m/s near the end would speed the robot up."""
+    fsm = ready(horizon_latency_s=0.0)
+    fsm.move("g1", 1.0, "P-5", (*P5, 0.2), [P3, P4, P5], (*P3, NORTH), final_goal=False)
+    asked = limits(fsm.tick(1.2, near_p5(back_m), DRIVING, no_obstacle))
+    assert all(v == 0.0 or v <= nav2_desired_mps() for v in asked)
+
+
+def test_the_speed_cap_is_not_above_the_nav2_desired_speed():
+    assert FsmParams().horizon_cap_mps <= nav2_desired_mps()
+
+
+def nav2_desired_mps() -> float:
+    """The lower desired_linear_vel of the two RPPs pinky_nav_config loads."""
+    import yaml
+    from conftest import REPO
+    nav2 = yaml.safe_load((REPO / "pinky" / "pinky_nav_config" / "params" / "nav2_params.yaml")
+                          .read_text(encoding="utf-8"))
+    server = nav2["controller_server"]["ros__parameters"]
+    return min(server[name]["desired_linear_vel"] for name in server["controller_plugins"])
+
+
+# ---- pass-through controller: every FollowPath goal says whether its end is final -----------
+
+
+def test_every_path_of_a_final_goal_is_marked_final():
+    fsm = ready()
+    [send] = sends(move(fsm, "g1", 1.0))
+    assert send.final_goal is True
+
+
+def test_every_path_of_a_goal_at_a_lock_boundary_is_marked_not_final():
+    """The node picks the pass-through controller from this mark, also for the periodic
+    resends near the end (R13)."""
+    fsm = ready()
+    [send] = sends(fsm.move("g1", 1.0, "P-5", (*P5, 0.2), [P3, P4, P5], (*P3, NORTH),
+                            final_goal=False))
+    assert send.final_goal is False
+    resent = sends(fsm.tick(1.6, near_p5(0.10), DRIVING, no_obstacle))
+    assert resent and all(s.final_goal is False for s in resent)
+    [last] = sends(fsm.move("g2", 1.7, "P-5", (*P5, 0.2), [P3, P4, P5], near_p5(0.10)))
+    assert last.final_goal is True, "the next goal that ends the route is final again"
+
+
+def test_the_resend_after_a_self_recovery_keeps_the_mark():
+    fsm = ready()
+    fsm.move("g1", 0.0, "P-5", (*P5, 0.2), [P3, P4, P5], (*P3, NORTH), final_goal=False)
+    [b] = backups(stand(fsm, 1.0, STUCK))
+    fsm.heartbeat(3.5)
+    [again] = sends(fsm.backup_result(b.seq, "succeeded", 3.5, BEHIND))
+    assert again.final_goal is False

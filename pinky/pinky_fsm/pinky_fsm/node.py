@@ -71,7 +71,7 @@ _FLOAT_PARAMS = (
     # 관제가 시키는 물러나기(버전 2 1-A)
     "retreat_stop_wait_s",
     # 잠금 경계 목표의 속도 제한(버전 2 4절 horizon 최소판)
-    "horizon_decel_mps2", "horizon_min_mps", "horizon_cap_mps")
+    "horizon_decel_mps2", "horizon_min_mps", "horizon_cap_mps", "horizon_latency_s")
 _INT_PARAMS = ("recovery_attempts",)
 
 
@@ -98,6 +98,9 @@ class PinkyFsmNode(Node):
         declare("backup_action", "backup")
         declare("clear_costmap_service", "local_costmap/clear_entirely_local_costmap")
         declare("controller_id", "FollowPath")
+        # 잠금 경계에서 끝나는 경로(MoveTo.final_goal 거짓)에 쓸 controller: 접근 감속 없는 RPP라
+        # 경계 앞 감속은 speed_limit만 맡는다. 비우면 모두 controller_id. Nav2가 띄워 둬야 한다
+        declare("through_controller_id", "")
         declare("goal_checker_id", "general_goal_checker")
         declare("progress_checker_id", "progress_checker")
         declare("odom_topic", "odom")
@@ -118,6 +121,7 @@ class PinkyFsmNode(Node):
         self._pose_timeout = float(get("pose_timeout_s").value)
         self._nav_ids = (get("controller_id").value, get("goal_checker_id").value,
                          get("progress_checker_id").value)
+        self._through_id = get("through_controller_id").value
         self._fsm = PinkyFsm(FsmParams(
             **{name: float(get(name).value) for name in _FLOAT_PARAMS},
             **{name: int(get(name).value) for name in _INT_PARAMS}))
@@ -358,7 +362,11 @@ class PinkyFsmNode(Node):
             ps.pose.orientation.z, ps.pose.orientation.w = qz, qw
             path.poses.append(ps)
         controller, checker, progress = self._nav_ids
-        goal = FollowPath.Goal(path=path, controller_id=controller, goal_checker_id=checker,
+        if self._through_id and not cmd.final_goal:
+            # 바꿔 보내는 목표로 controller가 바뀐다(controller_server updateGlobalPath).
+            # speed_limit은 띄운 controller 모두에 간다
+            controller = self._through_id
+        goal =FollowPath.Goal(path=path, controller_id=controller, goal_checker_id=checker,
                                progress_checker_id=progress)
         self._nav_pending.add(cmd.seq)
         self._nav.send_goal_async(goal).add_done_callback(partial(self._on_nav_response,

@@ -229,8 +229,58 @@ def test_a_goal_at_a_lock_boundary_publishes_a_speed_limit_and_lifts_it_at_the_e
     assert any(0.0 < v < 0.3 for v in fake.speed_limits)
 
 
+def test_the_speed_limit_latency_margin_is_a_node_parameter(harness):
+    from pinky_fsm.core import FsmParams
+    from pinky_fsm.node import PinkyFsmNode
+
+    def node(**overrides):
+        return harness.add(PinkyFsmNode(parameter_overrides=harness.params(
+            robot_id="pinky1", contract_file=str(CONTRACT), **overrides)))
+    assert node().get_parameter("horizon_latency_s").value == FsmParams().horizon_latency_s
+    assert node(horizon_latency_s=0.1)._fsm.p.horizon_latency_s == 0.1
+
+
 def test_a_final_goal_publishes_no_speed_limit(harness):
     fake, probe = start(harness)
     assert probe.result(probe.send(lane_goal(["P-3", "P-4"]))).result.success is True
     time.sleep(0.3)
     assert all(v == 0.0 for v in fake.speed_limits), "처음에 푸는 0만 있다"
+
+
+def test_without_a_through_controller_every_goal_uses_the_normal_controller(harness):
+    """through_controller_id "" (the node default): every path goes to controller_id."""
+    fake, probe = start(harness)
+    goal = lane_goal(["P-3", "P-4"])
+    goal.final_goal = False
+    assert probe.result(probe.send(goal)).result.success is True
+    assert fake.controller_ids and set(fake.controller_ids) == {"FollowPath"}
+
+
+def test_a_goal_at_a_lock_boundary_uses_the_through_controller(harness):
+    """Nav2 RPP slows down near every path end; a non-final goal goes to a second RPP without
+    that approach slow-down and keeps the sqrt(2 a d) speed limit as its only slow-down."""
+    fake, probe = start(harness, through_controller_id="FollowPathThrough")
+    goal = lane_goal(["P-3", "P-4"])
+    goal.final_goal = False
+    assert probe.result(probe.send(goal)).result.success is True
+    assert fake.controller_ids and set(fake.controller_ids) == {"FollowPathThrough"}
+    assert any(0.0 < v < 0.3 for v in fake.speed_limits)
+
+
+def test_a_final_goal_keeps_the_normal_controller_with_a_through_controller_set(harness):
+    fake, probe = start(harness, through_controller_id="FollowPathThrough")
+    assert probe.result(probe.send(lane_goal(["P-3", "P-4"]))).result.success is True
+    assert fake.controller_ids and set(fake.controller_ids) == {"FollowPath"}
+
+
+def test_a_final_goal_replacing_a_partial_one_switches_back_to_the_normal_controller(harness):
+    fake, probe = start(harness, through_controller_id="FollowPathThrough")
+    partial = lane_goal(["P-3", "P-4", "P-5"])
+    partial.final_goal = False
+    probe.send(partial)
+    assert wait_until(lambda: fake.controller_ids, 5.0)
+    res = probe.result(probe.send(lane_goal(["P-3", "P-4", "P-5"])))
+    assert res.result.success is True
+    assert fake.controller_ids[0] == "FollowPathThrough"
+    assert fake.controller_ids[-1] == "FollowPath"
+    assert not fake.cancels, "the switch replaces the goal without stopping (guide 2.1)"
