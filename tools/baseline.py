@@ -500,6 +500,7 @@ def write_summary(path, summary) -> None:
 TABLE_METRICS = ("finished", "finish_s", "wait_total_s", "object_still_s", "interventions",
                  "error_entries", "stops", "detours", "path_m", "min_gap_m", "tick_ms_mean",
                  "tick_ms_p99", "deadlocks", "unresolved", "isolations")
+FINE_METRICS = ("min_gap_m", "tick_ms_mean", "tick_ms_p99")  # below 1, so three decimals
 
 
 def table(summary) -> str:
@@ -519,6 +520,8 @@ def table(summary) -> str:
                 shown.append(f"{round(s['mean'] * s['runs'])}/{s['runs']}")
             elif s["min"] == s["max"]:
                 shown.append(f"{s['mean']:g}")
+            elif metric in FINE_METRICS:
+                shown.append(f"{s['mean']:.3f} ({s['min']:.3f}-{s['max']:.3f})")
             else:
                 shown.append(f"{s['mean']:.1f} ({s['min']:g}-{s['max']:g})")
         lines.append("| " + " | ".join([*key, *shown]) + " |")

@@ -641,6 +641,13 @@ def test_the_long_run_builds_on_the_default_map():
     assert len(world.orders) == 100 and world.params.lane_goal_mode == "path"
 
 
+def test_the_table_keeps_three_decimals_for_millisecond_ticks_and_gaps():
+    rows = [row(1, 100.0, tick_ms_mean=0.123, min_gap_m=0.3068),
+            row(2, 100.0, tick_ms_mean=0.141, min_gap_m=0.35)]
+    line = baseline.table(baseline.summarize(rows)).splitlines()[2]
+    assert "0.132 (0.123-0.141)" in line and "0.328 (0.307-0.350)" in line
+
+
 def test_the_command_line_passes_speed_noise_and_params(tmp_path, monkeypatch):
     seen = []
 
