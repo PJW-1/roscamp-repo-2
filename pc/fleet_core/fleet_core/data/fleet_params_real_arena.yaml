@@ -1,0 +1,73 @@
+# 실제 경기장(real_arena)용 관제 파라미터: fleet_params.yaml에서 release_distance_m만 0.17로 바꿨다.
+# 정책 값. 추정 표시는 실제 코스에서 재야 한다.
+basket_capacity: 4            # 추정: 바구니 하나에 담는 최대 수량, 실제 바구니에 따라 다름
+ship_partial: true            # 일부만 담겨도 내보내고, 빈 바구니는 남긴다
+robot_radius_m: 0.08          # 추정: 핑키 몸체만, 뒤 트레이는 아직 미포함
+release_margin_extra_m: 0.05  # 시나리오 판정 전용: 반경 + 이 값 = 코스 이탈
+# 경로 위에서 뒤 구역은 보고가 나가는 레인을 따라 이만큼 지나면 놓는다. s = (p - p_i)·u.
+# 규칙 d >= r + eps + v * (tau + tick): 보고가 eps 틀리고 tau + tick 늦어도 몸이 구역을 지난다.
+# 0.08 + 0.03 + 0.2 * (0.2 + 0.1) = 0.17 m.
+# 또 d > 2r: 뒤 로봇이 방금 떠난 지점까지 올 수 있다. 앞 로봇이 eps 앞선 보고 직후 멈출 수
+# 있으면 d >= 2r + eps. eps와 tau를 실제 로봇에서 재기 전까지 추정이다.
+# 압박 표는 docs/worklog_2026-11-05.md.
+release_distance_m: 0.17      # 실제 경기장(real_arena): 가장 짧은 레인이 0.174 m라 기본 0.2 m 대신. 이 줄만 fleet_params.yaml과 다르다
+release_confirm_samples: 3    # 해제 전에 그 거리를 지난 연속 보고 수
+lane_error_warn_m: 0.15       # 지금 레인에서 이만큼 벗어나면 경고하고 세움, e = |(p - p_i) - s·u|
+move_retry_limit: 2           # 첫 실패 뒤 재시도 수, 모두 세 번 시도
+move_retry_wait_s: 2.0        # 추정: 세 번 시도가 comm_timeout_s보다 길어 통신 끊김이 먼저 보인다
+stall_s: 6.0                  # 목표가 열린 채 이만큼 제자리면 멈춤. pinky_multi_sim과 같은 값
+stall_move_m: 0.05            # 매끄럽게 한 위치가 이보다 덜 움직이면 제자리. 위치 잡음 σ 0.03 m에도 버틴다
+stall_smooth_s: 1.0           # 위치를 매끄럽게 하는 시간 상수(지수 평균)
+dock_stall_s: 15.0            # 추정: 도킹은 천천히 맞추므로 더 길게 본다
+blocked_mark_s: 5.0           # 추정: BLOCKED가 이만큼 이어지면 레인을 막힘으로 표시하고 목표를 취소
+blocked_timeout_s: 60.0       # 추정: BLOCKED로 보고된 시간이 이만큼이면 ERROR(BLOCKED)
+blocked_rejoin_s: 10.0        # 풀린 뒤 이 안에 같은 레인에서 다시 막히면 막힌 시간을 이어 센다
+queue_gap_m: 0.6              # 추정: 같은 레인이나 다음 레인 앞 이 거리 안에 정상 로봇이 있으면 줄 서기
+detour_enabled: true          # 다음 구역을 서 있는 로봇이 쥐었거나 레인이 막혔으면 더 싼 길로 돌아간다. false면 줄을 선다
+station_wait_estimate_s: 30.0 # 추정: 스테이션이나 대기 칸에 선 로봇이 비키기까지 걸리는 시간
+detour_speed_mps: 0.2         # 추정: 대기 시간을 거리 벌점으로 바꾸는 속도. FakePinky 기본 속도(시나리오 speed_mps 0.2)
+arrival_tolerance_m: 0.15     # 추정: 목표 지점에 이만큼 가까워야 이동 성공으로 친다
+arrival_settle_s: 1.0         # 추정: 보고가 늦으니 성공 뒤 이만큼 기다린다
+startup_wait_s: 10.0          # 이때까지 보고 없는 로봇은 알린다
+comm_timeout_s: 3.0           # 추정
+heartbeat_period_s: 0.5       # /fleet/heartbeat 제안값. 프로세스를 보므로 실제 시계 기준
+heartbeat_timeout_s: 1.5      # 제안값: 이만큼(세 번) 못 받으면 로봇이 멈춘다
+recover_check_s: 1.0          # 추정
+arm_cancel_wait_s: 5.0        # 추정
+arm_retry_wait_s: 2.0         # 추정
+fill_timeout_s: 90.0          # 추정: 팔 두 대가 바구니 하나를 채움
+swap_timeout_s: 60.0          # 추정: arm3가 찬 바구니를 빼고 빈 바구니를 놓음
+cancel_retry_s: 1.0           # 추정: 취소한 goal 결과가 없으면 이 주기로 다시 요청
+cancel_warn_after: 5          # 결과 없이 이만큼 주기가 지나면 CANCEL_UNCONFIRMED.
+                              # 코어가 기다리는 팔을 늦었다고 하지 않게 arm_cancel_wait_s 이상
+report_retry_s: 2.0           # 추정: 답이 없으면 이만큼 뒤 주문 보고를 다시 보냄
+zone_wait_warn_s: 60.0        # 한 구역을 이만큼 기다리면 경고
+deadlock_grace_s: 5.0         # 교착 두 번째 단계 전 대기
+deadlock_unresolved_s: 30.0   # 제안: DEADLOCK_UNRESOLVED 뒤 같은 순환이 이만큼 이어지면 우선순위가 가장 낮은 로봇을 격리
+score_same_call: -4.0         # 이미 불린 로봇은 다른 로봇이 확실히 가깝지 않으면 호출을 유지
+score_distance_weight: 0.91   # 레인 거리 1 m당
+priority_at_station: 200
+priority_has_cargo: 100
+input_pose_margin_m: 1.0      # 웨이포인트 범위 밖으로 이보다 먼 보고 위치는 버린다
+off_lane_timeout_s: 20.0      # 레인을 벗어나 선 로봇이 이 안에 못 돌아오면 ERROR(OFF_LANE)
+lane_goal_mode: path          # path: 레인 폴리라인을 보내 FollowPath로 따르게 한다. point: 지점 하나(비교용)
+release_clear_of_floor: true  # 나가는 레인 s > d에 더해 구역의 다른 바닥 선에서도 d 이상이어야 놓는다(예각 합류)
+idle_watch_s: 10.0            # 제안: 주행 단계인데 goal도 구역 대기표도 없이 이만큼 서면 ROBOT_IDLE, 그 지점 goal을 다시 보낸다
+dispatch_retry_wait_s: 2.0    # 제안: 출고 호출이 실패하면 이만큼 뒤 다시 보낸다
+dispatch_retry_limit: 3       # 제안: 출고 호출 실패가 이 수를 넘으면 ERROR(DISPATCH_FAILED)
+free_plan_wait_s: 2.0         # 제안(버전 2 F-1): 자유 구역 경로 계산 답을 이만큼 기다리고, 없으면 출입구 사이 직선으로 간다
+free_path_max_ratio: 2.0      # 제안: 받은 자유 구역 경로가 출입구 사이 직선의 이 배수보다 길면 쓰지 않는다
+free_cells: true              # 제안(버전 2 F-2): 자유 구역을 칸(cell_m)과 진입 레인으로 잠가 여러 대가 함께 지난다. 끄면 한 번에 한 대(F-1)
+real_retreat: true            # 제안(버전 2 1-A): 교착에서 내놓을 구역이 없는 로봇은 뒤 구역을 잠그고 들어온 레인을 곧게 후진한다
+retreat_max_m: 0.4            # 제안: 한 번에 물러나는 최대 거리
+retreat_speed_mps: 0.08       # 제안: 후진 속도(자가 복구 후진과 같다)
+retreat_heading_tolerance_deg: 30.0  # 제안: 로봇 방향이 들어온 레인과 이만큼 넘게 다르면 물러나지 않는다(곧게 후진하면 레인을 벗어난다)
+mark_final_goal: true         # 제안(버전 2 4절, 계약 0.8-draft): 잠금 경계에서 끝나는 이동은 final_goal 거짓(핑키가 설 수 있는 속도로만 줄인다)
+corner_radius_m: 0.12         # 제안(버전 2 4절): path 모드 레인 경로의 꺾인 지점을 이 반지름 이하 원호로(꺾인 점과 원호 사이 half_width 이하)
+self_recovery_limit_s: 45.0   # 제안: 로봇이 RECOVERING(자가 복구)을 이만큼 넘게 이어 보내면 BLOCKED로 본다. 핑키 FSM의 두 번 시도는 길어야 약 35 s
+borrow_enabled: false         # 제안(버전 2 1-C, 끔: ROS 경로 요청 배선 전이고 two_lane_segments blocked_lane 기준선이 5/5에서 2/5로 떨어져서): BLOCKED가 obstacle_wait_s 이어지면 로봇 planner로 비켜 갈 길을 받고, 닿는 구역을 한꺼번에 빌려(모두 비고 기다리는 로봇이 없을 때만) 그 길로 간다
+obstacle_wait_s: 3.0          # 제안: 막힌 뒤 비켜 갈 길을 청하기까지 지켜보는 시간(지역 대응 S2)
+borrow_wait_s: 10.0           # 제안: 빌리기를 매 tick 다시 보는 시간. 지나면 거두고 지금의 막힘 처리(LANE_BLOCKED)로
+detour_max_ratio: 2.0         # 제안: 비켜 가는 길이 막힌 자리에서 다시 붙을 지점까지 직선의 이 배수보다 길면 쓰지 않는다
+detour_sample_m: 0.05         # 제안: 닿는 구역을 잴 때 길을 나누는 간격
+detour_rejoin_tries: 2        # 제안: 다시 붙을 지점 후보 수(막힌 레인 끝 지점부터 경로를 따라)
