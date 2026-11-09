@@ -117,13 +117,18 @@ def speed_of(text: str) -> float | None:
 
 def fleet(scenario_file: str, robots: list[str], result_dir: str, monitor: bool,
           params_file: str = "", obstacles_file: str = "", check: bool = True,
-          lane_map: str = "") -> list:
+          lane_map: str | None = None) -> list:
     """진짜 관제와 가짜 작업셀·비전·출고 팔·central·모니터, 장애물(있으면). 모두 Gazebo 시계.
-    lane_map: 관제 레인 지도 파일. 비면 기본 지도(노드에 넘기지 않는다)."""
+    lane_map: 관제 레인 지도 파일. ""는 기본 지도, None이면 시나리오의 map으로 고른다
+    (fleet_setup.arena_for). 노드에는 늘 넘긴다(""도)."""
     from fake_robots.common import split_fake_arms
     from fleet_core.traffic.lane_map import load_lane_map
-    map_file = {"map_file": lane_map} if lane_map else {}
-    lane = {"lane_map": lane_map} if lane_map else {}
+    if lane_map is None:
+        from fleet_gz_sim.fleet_setup import arena_for
+        lane_map = arena_for(scenario_file, launch_parts.share("fleet_gz_sim"),
+                             launch_parts.share("fake_robots")).lane_map
+    map_file = {"map_file": lane_map}
+    lane = {"lane_map": lane_map}
     common = {"use_sim_time": True, "scenario_file": scenario_file, **map_file}
 
     def fake(executable, name, **extra):
@@ -222,7 +227,7 @@ def _start(context):
                                       nav_collision_check=collision_check)
     if value("rviz") == "fleet":
         actions += fleet_rviz(robots, arena.lane_map)
-    map_file = {"map_file": arena.lane_map} if arena.lane_map else {}
+    map_file = {"map_file": arena.lane_map}
     actions.append(Node(package="fleet_gz_sim", executable="sim_stand_in", name="sim_stand_in",
                         output="screen",
                         parameters=[{"use_sim_time": True, "robots": robots,
