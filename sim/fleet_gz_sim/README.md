@@ -66,9 +66,14 @@ ros2 launch fleet_gz_sim gz.launch.py
 # 주행 확인 추천: 24분 순환 운행, 임무를 끝까지(도킹 대역), 레인 장애물
 ros2 launch fleet_gz_sim gz.launch.py scenario:=gz_roam sim_dock_stub:=true obstacles:=roam
 
+# 창고(포트폴리오): 6 x 4 m 창고, 랙, 작업대 위 팔 3대, 21분 동안 30 s마다 주문, 레인 장애물
+ros2 launch fleet_gz_sim gz.launch.py scenario:=gz_warehouse sim_dock_stub:=true obstacles:=warehouse
+
 # 화면 없이(느린 컴퓨터, 원격)
 ros2 launch fleet_gz_sim gz.launch.py scenario:=gz_roam sim_dock_stub:=true gui:=false rviz:=none
 ```
+
+경기장은 시나리오의 `map`이 고른다. `map`이 없으면 `lane_arena`, `map: warehouse`면 `worlds/warehouse.sdf`, `maps/warehouse[_fine].yaml`, 관제 레인 지도 `fake_robots/maps/warehouse.yaml`. 월드와 지도는 `sites/<이름>.yaml`에서 `python3 -m fleet_gz_sim.arena --site <이름>`(소스 폴더에서)으로 만들어 저장소에 넣는다.
 
 WSL2에서 화면이 느리면 GPU를 쓰게 한다: `export GALLIUM_DRIVER=d3d12 MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA`(그래픽 카드 이름).
 
@@ -121,6 +126,7 @@ pgrep -af "gz sim|ruby|component_container|pinky_fsm_node|fleet_manager_node"   
   | `sim_span_s`, `wall_span_s`, `real_time_factor` | 잰 시뮬 시간, 벽시계 시간, 그 비 |
 
 - 시나리오가 끝나면(`monitor:=true`) `summary.json`(판정, 출고 수), `safety.json`, `events.csv`, `zones.csv`, `robots.csv` 등. 중간에 Ctrl-C로 끝내면 이것들은 남지 않는다. 그때는 launch 로그의 `[fleet_manager]` 줄(배정, `DOCKED`, `ROBOT_ISOLATED` 등)을 본다.
+- `recovery_probe.csv`: 핑키 자가 복구(`RECOVERING`, 핑키 계약 4절, 제안)가 시작하고 끝나고 2 s 뒤(`event`가 `start`, `end`, `settled`)의 AMCL 위치와 Gazebo 실제 위치, 그 차(`err_m`, `yaw_err_deg`). `LOCALIZING` 보고는 비교할 위치가 없어 `note`가 `no_pose`다. `fleet_check`와 같은 프로세스에서 돌고, `fleet_check:=false`면 따로 돈다. 복구가 없었으면 머리줄만 남는다. 같은 `result_dir`로 다시 돌리면 뒤에 덧붙는다.
 - 돌아가는 동안 다른 터미널(같은 환경)에서:
 
   ```bash

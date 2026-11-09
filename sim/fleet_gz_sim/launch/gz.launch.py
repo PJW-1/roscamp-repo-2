@@ -4,6 +4,10 @@
     ros2 launch fleet_gz_sim gz.launch.py gui:=false rviz:=none   # 화면 없이
 
 - 핑키는 시나리오(fake_robots/scenarios, 기본 basic_orders)의 시작 지점에 놓는다(fleet_setup).
+- 경기장은 시나리오의 map이 고른다(fleet_setup.arena_for). 없으면 lane_arena, map: warehouse면
+  창고 월드, Nav2 지도, 관제·가짜·fleet_view·장애물의 레인 지도를 모두 창고 것으로.
+    ros2 launch fleet_gz_sim gz.launch.py scenario:=gz_warehouse sim_dock_stub:=true \
+        obstacles:=warehouse
 - 모든 로봇이 IDLE이 되면(wait_ready) 관제, 가짜 작업셀·비전·출고 팔·central, 시나리오 모니터를
   띄운다. 모니터가 기대값을 판정해 result_dir에 summary.json을 쓰고 launch를 끝낸다.
 - 시계는 Gazebo /clock 하나를 모두 쓴다. sim_clock을 띄우지 않으므로 시나리오의 speed_factor는
@@ -70,14 +74,15 @@ def flag(text: str, name: str) -> bool:
 
 
 def fleet(scenario_file: str, robots: list[str], result_dir: str, monitor: bool,
-          params_file: str = "", obstacles_file: str = "", check: bool = True) -> list:
-    """진짜 관제와 가짜 작업셀·비전·출고 팔·central·모니터, 장애물(있으면). 모두 Gazebo 시계."""
+          params_file: str = "", obstacles_file: str = "", check: bool = True,
+          lane_map: str = "") -> list:
+    """진짜 관제와 가짜 작업셀·비전·출고 팔·central·모니터, 장애물(있으면). 모두 Gazebo 시계.
+    lane_map: 관제 레인 지도 파일. 비면 기본 지도(노드에 넘기지 않는다)."""
     from fake_robots.common import split_fake_arms
-    from fake_robots.scenario import scenario_map_file
     from fleet_core.traffic.lane_map import load_lane_map
-    # 시나리오의 `map:`(없으면 기본 지도). 월드와 Nav2 지도는 lane_arena 그대로다(버전 2 F-2)
-    map_file = scenario_map_file(scenario_file)
-    common = {"use_sim_time": True, "scenario_file": scenario_file, "map_file": map_file}
+    map_file = {"map_file": lane_map} if lane_map else {}
+    lane = {"lane_map": lane_map} if lane_map else {}
+    common = {"use_sim_time": True, "scenario_file": scenario_file, **map_file}
 
     def fake(executable, name, **extra):
         return Node(package="fake_robots", executable=executable, name=name, output="screen",
@@ -86,8 +91,8 @@ def fleet(scenario_file: str, robots: list[str], result_dir: str, monitor: bool,
     actions = [Node(package="fleet_manager", executable="fleet_manager_node", name="fleet_manager",
                     output="screen",
                     parameters=[{"use_sim_time": True, "robots": robots,
-                                 "params_file": params_file, "map_file": map_file}])]
-    workcell, vision_arms, swap_arms = split_fake_arms(ARMS, load_lane_map(map_file or None))
+                                 "params_file": params_file, **map_file}])]
+    workcell, vision_arms, swap_arms = split_fake_arms(ARMS, load_lane_map(lane_map or None))
     if workcell:
         actions.append(fake("fake_workcell_node", "fake_workcell"))
     actions += [fake("fake_vision_node", f"fake_vision_{arm}", arm_id=arm) for arm in vision_arms]
@@ -98,15 +103,15 @@ def fleet(scenario_file: str, robots: list[str], result_dir: str, monitor: bool,
         actions.append(Node(package="fleet_gz_sim", executable="sim_obstacles",
                             name="sim_obstacles", output="screen",
                             parameters=[{"use_sim_time": True, "robots": robots,
-                                         "obstacles_file": obstacles_file,
-                                         "lane_map": map_file}]))
+                                         "obstacles_file": obstacles_file, **lane}]))
     probe = {"use_sim_time": True, "robots": robots, "result_dir": result_dir, "settle_s": 2.0}
     if check:
         # recovery_probe는 같은 프로세스에서 돈다(DDS 참여자를 아낀다)
         actions.append(Node(package="fleet_gz_sim", executable="fleet_check", name="fleet_check",
                             output="screen",
-                            parameters=[{**probe, "recovery_probe": True, "lane_map": map_file,
-                                         "output": str(Path(result_dir) / "fleet_check.json")}]))
+                            parameters=[{**probe, "recovery_probe": True,
+                                         "output": str(Path(result_dir) / "fleet_check.json"),
+                                         **lane}]))
     else:
         actions.append(Node(package="fleet_gz_sim", executable="recovery_probe",
                             name="recovery_probe", output="screen", parameters=[probe]))
@@ -132,16 +137,23 @@ def fleet_rviz(robots: list[str], lane_map: str = "") -> list:
 def _start(context):
     # 노드는 launch의 작업 폴더를 물려받는다. 노드에 cwd를 따로 주면 그 폴더도 봐야 한다.
     require_isolated(os.environ, rmw=get_rmw_implementation_identifier(), workdir=Path.cwd())
-    from fleet_gz_sim.fleet_setup import load, obstacles_path, scenario_path, start_poses
+    from fleet_gz_sim.fleet_setup import (
+        arena_for,
+        load,
+        obstacles_path,
+        scenario_path,
+        start_poses,
+    )
     from fleet_gz_sim.obstacles import load_schedule
 
     def value(name):
         return LaunchConfiguration(name).perform(context)
 
-    scenario_file = str(scenario_path(value("scenario"), launch_parts.share("fleet_gz_sim"),
-                                      launch_parts.share("fake_robots")))
-    site, scenario = load(scenario_file)
-    obstacles_file = obstacles_path(value("obstacles"), launch_parts.share("fleet_gz_sim"))
+    gz_share, fake_share = launch_parts.share("fleet_gz_sim"), launch_parts.share("fake_robots")
+    scenario_file = str(scenario_path(value("scenario"), gz_share, fake_share))
+    arena = arena_for(scenario_file, gz_share, fake_share)  # 시나리오의 map이 경기장을 고른다
+    site, scenario = load(scenario_file, arena.lane_map)
+    obstacles_file = obstacles_path(value("obstacles"), gz_share)
     if obstacles_file:
         load_schedule(obstacles_file, site)  # 틀린 일정이면 Gazebo를 띄우기 전에 멈춘다
     poses = start_poses(site, scenario)
@@ -149,23 +161,23 @@ def _start(context):
     composed = flag(value("nav_composition"), "nav_composition")
     stub = flag(value("sim_dock_stub"), "sim_dock_stub")
     check = flag(value("fleet_check"), "fleet_check")
-    actions = [*launch_parts.world(flag(value("gui"), "gui")),
+    actions = [*launch_parts.world(flag(value("gui"), "gui"), arena.world),
                launch_parts.bridge(robots)]
     for robot, (x, y, yaw) in poses.items():
         actions += launch_parts.pinky(robot, x, y, yaw,
                                       heartbeat_timeout_s=value("heartbeat_timeout_s"),
                                       nav_log_level=value("nav_log_level"),
                                       rviz=robot == value("rviz"), dock_aside=stub,
-                                      nav_composition=composed)
-    from fake_robots.scenario import scenario_map_file
-    map_file = scenario_map_file(scenario_file)
+                                      nav_composition=composed, nav_map=arena.nav_map,
+                                      nav_map_fine=arena.nav_map_fine)
     if value("rviz") == "fleet":
-        actions += fleet_rviz(robots, lane_map=map_file)
+        actions += fleet_rviz(robots, arena.lane_map)
+    map_file = {"map_file": arena.lane_map} if arena.lane_map else {}
     actions.append(Node(package="fleet_gz_sim", executable="sim_stand_in", name="sim_stand_in",
                         output="screen",
                         parameters=[{"use_sim_time": True, "robots": robots,
-                                     "scenario_file": scenario_file, "map_file": map_file,
-                                     "dock_stub": stub}]))
+                                     "scenario_file": scenario_file, "dock_stub": stub,
+                                     **map_file}]))
     wait = Node(package="fleet_gz_sim", executable="wait_ready", name="wait_ready",
                 output="screen", parameters=[{"robots": robots}])
     monitor = flag(value("monitor"), "monitor")
@@ -174,7 +186,7 @@ def _start(context):
         if event.returncode != 0:
             return [LogInfo(msg="fleet_gz_sim: 로봇이 IDLE이 되지 않아 끝낸다"), Shutdown()]
         return fleet(scenario_file, robots, value("result_dir"), monitor,
-                     value("fleet_params_file"), obstacles_file, check)
+                     value("fleet_params_file"), obstacles_file, check, arena.lane_map)
 
     actions += [wait, RegisterEventHandler(OnProcessExit(target_action=wait, on_exit=after_wait))]
     return actions
